@@ -17,7 +17,6 @@ Dependencies:
 """
 
 import threading
-import time
 
 import numpy as np
 import rclpy
@@ -32,10 +31,11 @@ except ImportError:
 # ══════════════════════════════ Configuration ══════════════════════════════
 # Keep UR5_IP in sync with servo2ur5.py
 
-UR5_IP     = "192.168.1.100"   # ← change to your UR5 controller IP
-PUBLISH_HZ = 10                 # /robot_state publish rate
+UR5_IP = "192.168.1.100"  # ← change to your UR5 controller IP
+PUBLISH_HZ = 10  # /robot_state publish rate
 
 # ══════════════════════════════ State Publisher Node ══════════════════════════
+
 
 class UR5StatePublisher(Node):
     """
@@ -54,16 +54,14 @@ class UR5StatePublisher(Node):
 
         # ── Gripper state (received from /robot_action) ───────────
         self._gripper_norm = 0.0
-        self._action_lock  = threading.Lock()
-        self.create_subscription(
-            Float64MultiArray, '/robot_action', self._cb_action, 10)
+        self._action_lock = threading.Lock()
+        self.create_subscription(Float64MultiArray, "/robot_action", self._cb_action, 10)
 
         # ── ROS 2 publisher + timer ───────────────────────────────
-        self._pub = self.create_publisher(Float64MultiArray, '/robot_state', 10)
+        self._pub = self.create_publisher(Float64MultiArray, "/robot_state", 10)
         self.create_timer(1.0 / PUBLISH_HZ, self._publish_state)
 
-        self.get_logger().info(
-            f"[UR5Pub] Publishing /robot_state at {PUBLISH_HZ} Hz.")
+        self.get_logger().info(f"[UR5Pub] Publishing /robot_state at {PUBLISH_HZ} Hz.")
 
     def _cb_action(self, msg: Float64MultiArray):
         """Cache the commanded gripper value from servo2ur5.py."""
@@ -79,20 +77,18 @@ class UR5StatePublisher(Node):
             with self._action_lock:
                 grip_norm = self._gripper_norm
 
-            state    = q_deg + [grip_norm]
-            msg      = Float64MultiArray()
+            state = q_deg + [grip_norm]
+            msg = Float64MultiArray()
             msg.data = state
             self._pub.publish(msg)
-            self.get_logger().debug(
-                f"[UR5Pub] state: {[f'{v:.2f}' for v in state]}")
+            self.get_logger().debug(f"[UR5Pub] state: {[f'{v:.2f}' for v in state]}")
 
         except Exception as e:
-            self.get_logger().warning(
-                f"[UR5Pub] State publish error: {e}",
-                throttle_duration_sec=2.0)
+            self.get_logger().warning(f"[UR5Pub] State publish error: {e}", throttle_duration_sec=2.0)
 
 
 # ══════════════════════════════ Entry point ══════════════════════════════
+
 
 def main():
     rclpy.init()

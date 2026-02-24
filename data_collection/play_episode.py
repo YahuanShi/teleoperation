@@ -1,7 +1,8 @@
 import pickle
+import sys
+
 import cv2
 import numpy as np
-import sys
 
 if len(sys.argv) != 2:
     print("Usage: python3 play_episode.py <path_to_pkl_file>")
@@ -10,15 +11,15 @@ if len(sys.argv) != 2:
 pkl_path = sys.argv[1]
 
 # Load data
-with open(pkl_path, 'rb') as f:
+with open(pkl_path, "rb") as f:
     episode = pickle.load(f)
 
 print(f"Loaded {len(episode)} steps.")
 
 # Playback
 for i, step in enumerate(episode):
-    img = step['image']
-    state = step['state']
+    img = step["image"]
+    state = step["state"]
 
     # Overlay state information on image
     text = f"State: {np.round(state, 2)}"

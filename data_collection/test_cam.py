@@ -1,6 +1,7 @@
-import pyrealsense2 as rs
-import numpy as np
 import cv2
+import numpy as np
+import pyrealsense2 as rs
+
 
 def test_realsense():
     # Configure RealSense stream
@@ -22,16 +23,17 @@ def test_realsense():
             frame = np.asanyarray(color_frame.get_data())
 
             # Display image using OpenCV
-            cv2.imshow('RealSense', frame)
+            cv2.imshow("RealSense", frame)
 
             # Press 'q' to exit
-            if cv2.waitKey(1) & 0xFF == ord('q'):
+            if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
 
     finally:
         # Release resources
         pipeline.stop()
         cv2.destroyAllWindows()
+
 
 if __name__ == "__main__":
     test_realsense()

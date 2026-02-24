@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
+import re
+import time
+
 import rospy
 import serial
-import time
-import re
-import numpy as np
 from std_msgs.msg import Float64MultiArray
+
 
 class ServoReaderNode:
     def __init__(self):
         rospy.init_node("servo_reader_node")
-        self.pub = rospy.Publisher('/servo_angles', Float64MultiArray, queue_size=10)
+        self.pub = rospy.Publisher("/servo_angles", Float64MultiArray, queue_size=10)
         self.rate = rospy.Rate(50)
-        self.SERIAL_PORT = '/dev/ttyUSB0'
+        self.SERIAL_PORT = "/dev/ttyUSB0"
 
         self.BAUDRATE = rospy.get_param("~baudrate", 115200)
         self.ser = serial.Serial(self.SERIAL_PORT, self.BAUDRATE, timeout=0.1)
@@ -22,12 +23,12 @@ class ServoReaderNode:
         self._init_servos()
 
     def send_command(self, cmd):
-        self.ser.write(cmd.encode('ascii'))
+        self.ser.write(cmd.encode("ascii"))
         time.sleep(0.008)
-        return self.ser.read_all().decode('ascii', errors='ignore')
+        return self.ser.read_all().decode("ascii", errors="ignore")
 
     def pwm_to_angle(self, response_str, pwm_min=500, pwm_max=2500, angle_range=270):
-        match = re.search(r'P(\d{4})', response_str)
+        match = re.search(r"P(\d{4})", response_str)
         if not match:
             return None
         pwm_val = int(match.group(1))
@@ -36,11 +37,11 @@ class ServoReaderNode:
         return angle
 
     def _init_servos(self):
-        self.send_command('#000PVER!')
+        self.send_command("#000PVER!")
         for i in range(7):
             self.send_command("#000PCSK!")
-            self.send_command(f'#{i:03d}PULK!')
-            response = self.send_command(f'#{i:03d}PRAD!')
+            self.send_command(f"#{i:03d}PULK!")
+            response = self.send_command(f"#{i:03d}PRAD!")
             angle = self.pwm_to_angle(response.strip())
             self.zero_angles[i] = angle if angle is not None else 0.0
         rospy.loginfo("Servo initial angle calibration completed")
@@ -54,13 +55,15 @@ class ServoReaderNode:
 
         while not rospy.is_shutdown():
             for i in range(7):
-                response = self.send_command(f'#{i:03d}PRAD!')
+                response = self.send_command(f"#{i:03d}PRAD!")
                 angle = self.pwm_to_angle(response.strip())
                 if angle is not None:
                     new_angle = angle - self.zero_angles[i]
                     if abs(new_angle - target_angle_offset[i]) > 90:
-                        raise Warning(f"Servo {i} angle jump too large: {new_angle} vs {target_angle_offset[i]}, check if hardware adjustment is needed.")
-                    elif abs(new_angle - target_angle_offset[i]) > step_size:
+                        raise Warning(
+                            f"Servo {i} angle jump too large: {new_angle} vs {target_angle_offset[i]}, check if hardware adjustment is needed."
+                        )
+                    if abs(new_angle - target_angle_offset[i]) > step_size:
                         target_angle_offset[i] = new_angle
                 else:
                     rospy.logwarn(f"Servo {i} response error: {response.strip()}")
@@ -73,7 +76,8 @@ class ServoReaderNode:
                 self.pub.publish(Float64MultiArray(data=angle_offset))
                 self.rate.sleep()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     try:
         node = ServoReaderNode()
         node.run()

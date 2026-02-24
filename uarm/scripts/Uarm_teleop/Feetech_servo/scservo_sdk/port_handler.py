@@ -1,14 +1,15 @@
 #!/usr/bin/env python
 
-import time
-import serial
 import sys
-import platform
+import time
+
+import serial
 
 DEFAULT_BAUDRATE = 1000000
-LATENCY_TIMER = 50 
+LATENCY_TIMER = 50
 
-class PortHandler(object):
+
+class PortHandler:
     def __init__(self, port_name):
         self.is_open = False
         self.baudrate = DEFAULT_BAUDRATE
@@ -43,9 +44,8 @@ class PortHandler(object):
             # self.setupPort(38400)
             # self.baudrate = baudrate
             return False  # TODO: setCustomBaudrate(baudrate)
-        else:
-            self.baudrate = baudrate
-            return self.setupPort(baud)
+        self.baudrate = baudrate
+        return self.setupPort(baud)
 
     def getBaudRate(self):
         return self.baudrate
@@ -54,10 +54,9 @@ class PortHandler(object):
         return self.ser.in_waiting
 
     def readPort(self, length):
-        if (sys.version_info > (3, 0)):
+        if sys.version_info > (3, 0):
             return self.ser.read(length)
-        else:
-            return [ord(ch) for ch in self.ser.read(length)]
+        return [ord(ch) for ch in self.ser.read(length)]
 
     def writePort(self, packet):
         return self.ser.write(packet)
@@ -97,7 +96,7 @@ class PortHandler(object):
             # parity = serial.PARITY_ODD,
             # stopbits = serial.STOPBITS_TWO,
             bytesize=serial.EIGHTBITS,
-            timeout=0
+            timeout=0,
         )
 
         self.is_open = True
@@ -111,5 +110,4 @@ class PortHandler(object):
     def getCFlagBaud(self, baudrate):
         if baudrate in [4800, 9600, 14400, 19200, 38400, 57600, 115200, 128000, 250000, 500000, 1000000]:
             return baudrate
-        else:
-            return -1          
+        return -1

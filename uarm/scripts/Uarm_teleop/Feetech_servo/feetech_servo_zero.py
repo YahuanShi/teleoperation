@@ -1,13 +1,13 @@
 # group read servo position
 
 import sys
+
 import numpy as np
 
 sys.path.append("..")
 from scservo_sdk import *
 
-
-portHandler = PortHandler('/dev/ttyUSB0')
+portHandler = PortHandler("/dev/ttyUSB0")
 packetHandler = sms_sts(portHandler)
 
 # Open port
@@ -40,7 +40,6 @@ for scs_id in range(1, 9):
     if result != COMM_SUCCESS:
         print(f"Failed to read the position: {packetHandler.getTxRxResult(result)}")
 
-
     Homing_Offset = raw_pos - 2047
 
     if Homing_Offset < 0:
@@ -51,7 +50,7 @@ for scs_id in range(1, 9):
     # Write the offset in
     comm, error = packetHandler.write2ByteTxRx(scs_id, SMS_STS_OFS_L, encoded_offset)
     if error == 0:
-        print(f"Succeeded to set the half position for id:%d" % scs_id)
+        print("Succeeded to set the half position for id:%d" % scs_id)
     time.sleep(0.1)
 
     # Lock EPROM
@@ -90,4 +89,3 @@ while 1:
     print(angle_pos)
     groupSyncRead.clearParam()
     # time.sleep(0.1)
-

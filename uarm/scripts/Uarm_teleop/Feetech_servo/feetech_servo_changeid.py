@@ -1,8 +1,7 @@
 # set new id for servo
 from scservo_sdk import *
 
-
-portHandler = PortHandler('/dev/ttyUSB0')
+portHandler = PortHandler("/dev/ttyUSB0")
 packetHandler = sms_sts(portHandler)
 
 # Open port

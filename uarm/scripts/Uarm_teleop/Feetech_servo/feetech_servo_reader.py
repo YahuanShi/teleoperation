@@ -1,16 +1,22 @@
 #!/usr/bin/env python3
 import os
 import sys
-import time
 import threading
+import time
 
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Float64MultiArray
 
-# Absolute path so the import works regardless of the working directory
-# when this script is launched via run_ur5_nodes.sh.
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+# scservo_sdk/ lives in the same directory as this script.
+# Python automatically prepends the script's directory to sys.path when
+# the script is run with an absolute path (e.g. from run_ur5_nodes.sh),
+# so no manual sys.path manipulation is needed.  The explicit insert below
+# is a safeguard for the rare case where the interpreter doesn't do so.
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if _SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPT_DIR)
+
 from scservo_sdk import *
 
 
@@ -18,19 +24,18 @@ class ServoReaderNode(Node):
     def __init__(self):
         super().__init__("servo_reader_node")
 
-        self.pub = self.create_publisher(Float64MultiArray, '/servo_angles', 10)
+        self.pub = self.create_publisher(Float64MultiArray, "/servo_angles", 10)
 
-        self.portHandler   = PortHandler('/dev/ttyUSB0')
+        self.portHandler = PortHandler("/dev/ttyUSB0")
         self.packetHandler = sms_sts(self.portHandler)
         self.portHandler.openPort()
         self.portHandler.setBaudRate(1000000)
 
         self.get_logger().info("Serial port opened")
 
-        self.groupSyncRead = GroupSyncRead(
-            self.packetHandler, SMS_STS_PRESENT_POSITION_L, 4)
+        self.groupSyncRead = GroupSyncRead(self.packetHandler, SMS_STS_PRESENT_POSITION_L, 4)
         self.gripper_range = 0.48
-        self.zero_angles   = [0.0] * 7
+        self.zero_angles = [0.0] * 7
         self._init_servos()
 
     def _init_servos(self):
@@ -43,8 +48,7 @@ class ServoReaderNode(Node):
             self.packetHandler.write2ByteTxRx(scs_id, SMS_STS_OFS_L, 0)
             time.sleep(0.1)
 
-            raw_pos, result, error = self.packetHandler.read2ByteTxRx(
-                scs_id, SMS_STS_PRESENT_POSITION_L)
+            raw_pos, result, error = self.packetHandler.read2ByteTxRx(scs_id, SMS_STS_PRESENT_POSITION_L)
 
             Homing_Offset = raw_pos - 2047
             if Homing_Offset < 0:
@@ -52,11 +56,9 @@ class ServoReaderNode(Node):
             else:
                 encoded_offset = Homing_Offset
 
-            comm, error = self.packetHandler.write2ByteTxRx(
-                scs_id, SMS_STS_OFS_L, encoded_offset)
+            comm, error = self.packetHandler.write2ByteTxRx(scs_id, SMS_STS_OFS_L, encoded_offset)
             if error == 0:
-                self.get_logger().info(
-                    f"Succeeded to set the half position for id:{scs_id}")
+                self.get_logger().info(f"Succeeded to set the half position for id:{scs_id}")
             time.sleep(0.1)
 
             self.packetHandler.LockEprom(scs_id)
@@ -66,47 +68,40 @@ class ServoReaderNode(Node):
             scs_id = i + 1
             scs_addparam_result = self.groupSyncRead.addParam(scs_id)
             if not scs_addparam_result:
-                self.get_logger().warning(
-                    "[ID:%03d] groupSyncRead addparam failed" % scs_id)
+                self.get_logger().warning("[ID:%03d] groupSyncRead addparam failed" % scs_id)
 
         scs_comm_result = self.groupSyncRead.txRxPacket()
         if scs_comm_result != COMM_SUCCESS:
-            self.get_logger().warning(
-                "%s" % self.packetHandler.getTxRxResult(scs_comm_result))
+            self.get_logger().warning("%s" % self.packetHandler.getTxRxResult(scs_comm_result))
 
         for i in range(7):
             scs_id = i + 1
-            scs_data_result, scs_error = self.groupSyncRead.isAvailable(
-                scs_id, SMS_STS_PRESENT_POSITION_L, 4)
+            scs_data_result, scs_error = self.groupSyncRead.isAvailable(scs_id, SMS_STS_PRESENT_POSITION_L, 4)
             if scs_data_result:
-                scs_present_position = self.groupSyncRead.getData(
-                    scs_id, SMS_STS_PRESENT_POSITION_L, 2)
+                scs_present_position = self.groupSyncRead.getData(scs_id, SMS_STS_PRESENT_POSITION_L, 2)
                 self.zero_angles[i] = scs_present_position
             else:
                 self.zero_angles[i] = 2047
-                self.get_logger().warning(
-                    "[ID:%03d] groupSyncRead getdata failed" % scs_id)
+                self.get_logger().warning("[ID:%03d] groupSyncRead getdata failed" % scs_id)
                 continue
             if scs_error != 0:
-                self.get_logger().warning(
-                    "%s" % self.packetHandler.getRxPacketError(scs_error))
+                self.get_logger().warning("%s" % self.packetHandler.getRxPacketError(scs_error))
 
         self.get_logger().info(f"Zero positions (raw): {self.zero_angles}")
         self.groupSyncRead.clearParam()
 
     def run(self):
-        dt             = 1.0 / 50        # 50 Hz
-        num_interp     = 5
-        step_size      = 1
-        angle_offset        = [0.0] * 7
+        dt = 1.0 / 50  # 50 Hz
+        num_interp = 5
+        step_size = 1
+        angle_offset = [0.0] * 7
         target_angle_offset = [0.0] * 7
 
         while rclpy.ok():
             for i in range(7):
                 scs_addparam_result = self.groupSyncRead.addParam(i + 1)
                 if not scs_addparam_result:
-                    self.get_logger().warning(
-                        "[ID:%03d] groupSyncRead addparam failed" % (i + 1))
+                    self.get_logger().warning("[ID:%03d] groupSyncRead addparam failed" % (i + 1))
 
             scs_comm_result = self.groupSyncRead.txRxPacket()
             if scs_comm_result != COMM_SUCCESS:
@@ -114,11 +109,9 @@ class ServoReaderNode(Node):
 
             for i in range(7):
                 scs_id = i + 1
-                scs_data_result, scs_error = self.groupSyncRead.isAvailable(
-                    scs_id, SMS_STS_PRESENT_POSITION_L, 4)
+                scs_data_result, scs_error = self.groupSyncRead.isAvailable(scs_id, SMS_STS_PRESENT_POSITION_L, 4)
                 if scs_data_result:
-                    current_pos = self.groupSyncRead.getData(
-                        scs_id, SMS_STS_PRESENT_POSITION_L, 2)
+                    current_pos = self.groupSyncRead.getData(scs_id, SMS_STS_PRESENT_POSITION_L, 2)
                     if current_pos is not None:
                         new_angle = (current_pos - self.zero_angles[i]) / 4096.0 * 360.0
                         if abs(new_angle - target_angle_offset[i]) > step_size:
@@ -135,7 +128,7 @@ class ServoReaderNode(Node):
                 for i in range(7):
                     delta = target_angle_offset[i] - angle_offset[i]
                     angle_offset[i] += delta * 0.2
-                msg      = Float64MultiArray()
+                msg = Float64MultiArray()
                 msg.data = list(angle_offset)
                 self.pub.publish(msg)
                 time.sleep(dt / num_interp)
@@ -159,5 +152,5 @@ def main():
         rclpy.shutdown()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
