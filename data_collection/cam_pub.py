@@ -1,81 +1,138 @@
 #!/usr/bin/env python3
-import rospy
+"""
+Dual RealSense Camera Publisher  (ROS 2 Humble)
+
+Publishes:
+    /cam_1  sensor_msgs/Image   exterior camera  (BGR8, 30 Hz)
+    /cam_2  sensor_msgs/Image   wrist camera     (BGR8, 30 Hz)
+
+Each camera runs its own background thread so a stall on one camera
+does not delay the other.  Cleanup is done via destroy_node() rather
+than __del__ so the pipeline stop is guaranteed on shutdown.
+"""
+
+import threading
+
 import cv2
-import pyrealsense2 as rs
-from sensor_msgs.msg import Image
-from cv_bridge import CvBridge
 import numpy as np
+import pyrealsense2 as rs
+import rclpy
+from cv_bridge import CvBridge
+from rclpy.node import Node
+from sensor_msgs.msg import Image
 
-class CameraNode:
+
+# ── Camera serial numbers — update these to match your hardware ──────────────
+SERIAL_1 = '338622073582'   # exterior camera
+SERIAL_2 = '148522073685'   # wrist camera
+
+PUBLISH_HZ = 30             # frames per second
+
+
+class CameraNode(Node):
     def __init__(self):
-        rospy.init_node('multi_cam_node')
-        self.bridge = CvBridge()
+        super().__init__('multi_cam_node')
+        self._bridge = CvBridge()
+        self._lock   = threading.Lock()
 
-        # Configure first RealSense camera (using serial number)
-        self.pipeline_1 = rs.pipeline()
-        config_1 = rs.config()
-        config_1.enable_device('338622073582')  # First camera serial number
-        config_1.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
-        self.pipeline_1.start(config_1)
+        # Latest frames (protected by _lock)
+        self._frame1: np.ndarray | None = None
+        self._frame2: np.ndarray | None = None
 
-        # Configure second RealSense camera (using serial number)
-        self.pipeline_2 = rs.pipeline()
-        config_2 = rs.config()
-        config_2.enable_device('148522073685')  # Second camera serial number
-        config_2.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
-        self.pipeline_2.start(config_2)
+        # ROS 2 publishers
+        self._pub1 = self.create_publisher(Image, '/cam_1', 10)
+        self._pub2 = self.create_publisher(Image, '/cam_2', 10)
 
-        # Publish image topics
-        self.pub_1 = rospy.Publisher('/cam_1', Image, queue_size=30)
-        self.pub_2 = rospy.Publisher('/cam_2', Image, queue_size=30)
+        # Start pipelines
+        self._pipe1 = self._start_pipeline(SERIAL_1)
+        self._pipe2 = self._start_pipeline(SERIAL_2)
 
-        # Timer to publish images at 10Hz frequency
-        rospy.Timer(rospy.Duration(0.1), self.publish_images)  # 10Hz adjustable
+        # Per-camera capture threads (daemon so they die with the process)
+        threading.Thread(target=self._capture_loop, args=(self._pipe1, 1),
+                         daemon=True, name="cam1-capture").start()
+        threading.Thread(target=self._capture_loop, args=(self._pipe2, 2),
+                         daemon=True, name="cam2-capture").start()
 
-    def publish_images(self, event):
-        # Get image data from first camera
-        frames_1 = self.pipeline_1.wait_for_frames()  # Get frames
-        color_frame_1 = frames_1.get_color_frame()  # Get color frame
-        if not color_frame_1:
-            rospy.logwarn("Failed to capture image from camera 1.")
-        else:
-            frame_1 = np.asanyarray(color_frame_1.get_data())  # Convert to NumPy array
-            ros_img_1 = self.bridge.cv2_to_imgmsg(frame_1, encoding='bgr8')
-            self.pub_1.publish(ros_img_1)
-            rospy.loginfo("Published image from camera 1")
+        # Timer publishes both frames at PUBLISH_HZ
+        self.create_timer(1.0 / PUBLISH_HZ, self._publish_frames)
 
-            # Visualize the image from camera 1
-            # self.visualize_image(frame_1, "Camera 1")
+        self.get_logger().info(
+            f"[CamPub] Cameras started — publishing /cam_1 and /cam_2 "
+            f"at {PUBLISH_HZ} Hz.")
 
-        # Get image data from second camera
-        frames_2 = self.pipeline_2.wait_for_frames()  # Get frames
-        color_frame_2 = frames_2.get_color_frame()  # Get color frame
-        if not color_frame_2:
-            rospy.logwarn("Failed to capture image from camera 2.")
-        else:
-            frame_2 = np.asanyarray(color_frame_2.get_data())  # Convert to NumPy array
-            ros_img_2 = self.bridge.cv2_to_imgmsg(frame_2, encoding='bgr8')
-            self.pub_2.publish(ros_img_2)
-            rospy.loginfo("Published image from camera 2")
+    # ── pipeline helpers ─────────────────────────────────────────────────────
 
-            # Visualize the image from camera 2
-            # self.visualize_image(frame_2, "Camera 2")
+    def _start_pipeline(self, serial: str) -> rs.pipeline:
+        pipeline = rs.pipeline()
+        cfg      = rs.config()
+        cfg.enable_device(serial)
+        cfg.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
+        pipeline.start(cfg)
+        self.get_logger().info(f"[CamPub] Pipeline started for serial {serial}")
+        return pipeline
 
-    def visualize_image(self, image, window_name):
-        # Display the image using OpenCV
-        cv2.imshow(window_name, image)
-        cv2.waitKey(1)  # Wait for a key press to update the window
+    # ── per-camera background capture threads ────────────────────────────────
 
-    def __del__(self):
-        # Stop streams
-        self.pipeline_1.stop()
-        self.pipeline_2.stop()
-        rospy.loginfo("Cameras released.")
-        cv2.destroyAllWindows()  # Close all OpenCV windows when done
+    def _capture_loop(self, pipeline: rs.pipeline, cam_id: int):
+        """Continuously grab frames from one camera into the shared buffer."""
+        while rclpy.ok():
+            try:
+                frames = pipeline.wait_for_frames(timeout_ms=2000)
+                color  = frames.get_color_frame()
+                if color:
+                    frame = np.asanyarray(color.get_data())
+                    with self._lock:
+                        if cam_id == 1:
+                            self._frame1 = frame
+                        else:
+                            self._frame2 = frame
+                else:
+                    self.get_logger().warning(
+                        f"[CamPub] No color frame from camera {cam_id}")
+            except Exception as e:
+                self.get_logger().warning(
+                    f"[CamPub] Camera {cam_id} capture error: {e}",
+                    throttle_duration_sec=5.0)
+
+    # ── publish timer callback ────────────────────────────────────────────────
+
+    def _publish_frames(self):
+        with self._lock:
+            f1 = self._frame1
+            f2 = self._frame2
+
+        if f1 is not None:
+            self._pub1.publish(self._bridge.cv2_to_imgmsg(f1, encoding='bgr8'))
+        if f2 is not None:
+            self._pub2.publish(self._bridge.cv2_to_imgmsg(f2, encoding='bgr8'))
+
+    # ── clean shutdown ────────────────────────────────────────────────────────
+
+    def destroy_node(self):
+        """Stop camera pipelines before the node is torn down."""
+        try:
+            self._pipe1.stop()
+        except Exception:
+            pass
+        try:
+            self._pipe2.stop()
+        except Exception:
+            pass
+        cv2.destroyAllWindows()
+        super().destroy_node()
+
+
+def main():
+    rclpy.init()
+    node = CameraNode()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
 
 if __name__ == '__main__':
-    try:
-        CameraNode()
-        rospy.spin()
-    except rospy.ROSInterruptException:
-        pass
+    main()

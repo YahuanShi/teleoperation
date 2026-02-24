@@ -1,124 +1,132 @@
 #!/usr/bin/env python3
-import rospy
-import serial
-import time
+import os
 import sys
+import time
+import threading
+
+import rclpy
+from rclpy.node import Node
 from std_msgs.msg import Float64MultiArray
 
-sys.path.append("..")
+# Absolute path so the import works regardless of the working directory
+# when this script is launched via run_ur5_nodes.sh.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from scservo_sdk import *
 
-class ServoReaderNode:
-    def __init__(self):
-        rospy.init_node("servo_reader_node")
-        self.pub = rospy.Publisher('/servo_angles', Float64MultiArray, queue_size=10)
-        self.rate = rospy.Rate(50)
 
-        self.portHandler = PortHandler('/dev/ttyUSB0')
+class ServoReaderNode(Node):
+    def __init__(self):
+        super().__init__("servo_reader_node")
+
+        self.pub = self.create_publisher(Float64MultiArray, '/servo_angles', 10)
+
+        self.portHandler   = PortHandler('/dev/ttyUSB0')
         self.packetHandler = sms_sts(self.portHandler)
         self.portHandler.openPort()
         self.portHandler.setBaudRate(1000000)
 
-        rospy.loginfo("Serial port opened")
+        self.get_logger().info("Serial port opened")
 
-        self.groupSyncRead = GroupSyncRead(self.packetHandler, SMS_STS_PRESENT_POSITION_L, 4)
+        self.groupSyncRead = GroupSyncRead(
+            self.packetHandler, SMS_STS_PRESENT_POSITION_L, 4)
         self.gripper_range = 0.48
-        self.zero_angles = [0.0] * 7
+        self.zero_angles   = [0.0] * 7
         self._init_servos()
 
     def _init_servos(self):
-        # Calibrate
-        rospy.loginfo("Calibrating servo half positions... DON'T MOVE!!!")
+        self.get_logger().info("Calibrating servo half positions... DON'T MOVE!!!")
         for i in range(7):
             scs_id = i + 1
-            # Unlock EPROM
             self.packetHandler.unLockEprom(scs_id)
             time.sleep(0.1)
 
-            # First write 0 in
-            comm, error = self.packetHandler.write2ByteTxRx(scs_id, SMS_STS_OFS_L, 0)
+            self.packetHandler.write2ByteTxRx(scs_id, SMS_STS_OFS_L, 0)
             time.sleep(0.1)
 
-            # Read present position
-            raw_pos, result, error = self.packetHandler.read2ByteTxRx(scs_id, SMS_STS_PRESENT_POSITION_L)
+            raw_pos, result, error = self.packetHandler.read2ByteTxRx(
+                scs_id, SMS_STS_PRESENT_POSITION_L)
 
             Homing_Offset = raw_pos - 2047
-
             if Homing_Offset < 0:
-                encoded_offset = (1 << 11) | abs(Homing_Offset)  # Highest bit is the sign bit
+                encoded_offset = (1 << 11) | abs(Homing_Offset)
             else:
                 encoded_offset = Homing_Offset
 
-            # Write the offset in
-            comm, error = self.packetHandler.write2ByteTxRx(scs_id, SMS_STS_OFS_L, encoded_offset)
+            comm, error = self.packetHandler.write2ByteTxRx(
+                scs_id, SMS_STS_OFS_L, encoded_offset)
             if error == 0:
-                rospy.loginfo(f"Succeeded to set the half position for id:%d" % scs_id)
+                self.get_logger().info(
+                    f"Succeeded to set the half position for id:{scs_id}")
             time.sleep(0.1)
 
-            # Lock EPROM
             self.packetHandler.LockEprom(scs_id)
             time.sleep(0.1)
 
-        # Read
         for i in range(7):
             scs_id = i + 1
             scs_addparam_result = self.groupSyncRead.addParam(scs_id)
-            if scs_addparam_result != True:
-                rospy.logwarn("[ID:%03d] groupSyncRead addparam failed" % scs_id)
+            if not scs_addparam_result:
+                self.get_logger().warning(
+                    "[ID:%03d] groupSyncRead addparam failed" % scs_id)
 
         scs_comm_result = self.groupSyncRead.txRxPacket()
         if scs_comm_result != COMM_SUCCESS:
-            rospy.logwarn("%s" % self.packetHandler.getTxRxResult(scs_comm_result))
+            self.get_logger().warning(
+                "%s" % self.packetHandler.getTxRxResult(scs_comm_result))
 
         for i in range(7):
             scs_id = i + 1
-            # Check if groupsyncread data of SCServo#1~7 is available
-            scs_data_result, scs_error = self.groupSyncRead.isAvailable(scs_id, SMS_STS_PRESENT_POSITION_L, 4)
-            if scs_data_result == True:
-                # Get SCServo#scs_id present position value
-                scs_present_position = self.groupSyncRead.getData(scs_id, SMS_STS_PRESENT_POSITION_L, 2)
+            scs_data_result, scs_error = self.groupSyncRead.isAvailable(
+                scs_id, SMS_STS_PRESENT_POSITION_L, 4)
+            if scs_data_result:
+                scs_present_position = self.groupSyncRead.getData(
+                    scs_id, SMS_STS_PRESENT_POSITION_L, 2)
                 self.zero_angles[i] = scs_present_position
             else:
                 self.zero_angles[i] = 2047
-                rospy.logwarn("[ID:%03d] groupSyncRead getdata failed" % scs_id)
+                self.get_logger().warning(
+                    "[ID:%03d] groupSyncRead getdata failed" % scs_id)
                 continue
             if scs_error != 0:
-                rospy.logwarn("%s" % self.packetHandler.getRxPacketError(scs_error))
-        rospy.loginfo(f"Zero positions (raw): {self.zero_angles}")
+                self.get_logger().warning(
+                    "%s" % self.packetHandler.getRxPacketError(scs_error))
+
+        self.get_logger().info(f"Zero positions (raw): {self.zero_angles}")
         self.groupSyncRead.clearParam()
 
-
     def run(self):
-        angle_offset = [0.0] * 7  # Currently published angles
-        target_angle_offset = [0.0] * 7  # Target angle for each servo
-        num_interp = 5  # Interpolation steps
-        step_size = 1  # Minimum change threshold
+        dt             = 1.0 / 50        # 50 Hz
+        num_interp     = 5
+        step_size      = 1
+        angle_offset        = [0.0] * 7
+        target_angle_offset = [0.0] * 7
 
-        while not rospy.is_shutdown():
+        while rclpy.ok():
             for i in range(7):
                 scs_addparam_result = self.groupSyncRead.addParam(i + 1)
-                if scs_addparam_result != True:
-                    rospy.logwarn("[ID:%03d] groupSyncRead addparam failed" % scs_id)
+                if not scs_addparam_result:
+                    self.get_logger().warning(
+                        "[ID:%03d] groupSyncRead addparam failed" % (i + 1))
 
             scs_comm_result = self.groupSyncRead.txRxPacket()
             if scs_comm_result != COMM_SUCCESS:
-                rospy.logwarn("GroupSyncRead failed")
+                self.get_logger().warning("GroupSyncRead failed")
 
             for i in range(7):
                 scs_id = i + 1
-                scs_data_result, scs_error = self.groupSyncRead.isAvailable(scs_id, SMS_STS_PRESENT_POSITION_L, 4)
-
+                scs_data_result, scs_error = self.groupSyncRead.isAvailable(
+                    scs_id, SMS_STS_PRESENT_POSITION_L, 4)
                 if scs_data_result:
-                    current_pos = self.groupSyncRead.getData(scs_id, SMS_STS_PRESENT_POSITION_L, 2)
+                    current_pos = self.groupSyncRead.getData(
+                        scs_id, SMS_STS_PRESENT_POSITION_L, 2)
                     if current_pos is not None:
                         new_angle = (current_pos - self.zero_angles[i]) / 4096.0 * 360.0
-                        # please change the sign of the angle according to the direction of the follower arm
                         if abs(new_angle - target_angle_offset[i]) > step_size:
                             target_angle_offset[i] = new_angle
                     else:
-                            rospy.logwarn(f"Can't read servo {scs_id}")
+                        self.get_logger().warning(f"Can't read servo {scs_id}")
                 else:
-                    rospy.logwarn(f"Failed to get data for ID {scs_id}")
+                    self.get_logger().warning(f"Failed to get data for ID {scs_id}")
 
             self.groupSyncRead.clearParam()
 
@@ -126,13 +134,30 @@ class ServoReaderNode:
             for step in range(num_interp):
                 for i in range(7):
                     delta = target_angle_offset[i] - angle_offset[i]
-                    angle_offset[i] += delta * 0.2  # Lazy interpolation, coefficient < 1 for adjustable smoothness
-                self.pub.publish(Float64MultiArray(data=angle_offset))
-                self.rate.sleep()
+                    angle_offset[i] += delta * 0.2
+                msg      = Float64MultiArray()
+                msg.data = list(angle_offset)
+                self.pub.publish(msg)
+                time.sleep(dt / num_interp)
+
+
+def main():
+    rclpy.init()
+    node = ServoReaderNode()
+
+    # Spin in background thread so ROS 2 callbacks are processed;
+    # run() holds the publish loop in the main thread.
+    spin_thread = threading.Thread(target=rclpy.spin, args=(node,), daemon=True)
+    spin_thread.start()
+
+    try:
+        node.run()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
 
 if __name__ == '__main__':
-    try:
-        node = ServoReaderNode()
-        node.run()
-    except rospy.ROSInterruptException:
-        pass
+    main()

@@ -1,7 +1,8 @@
 # Teleoperation
 
-ROS Noetic-based teleoperation system for collecting robot demonstration datasets compatible with **pi0.5 / openpi / LeRobot** training.
+ROS 2 Humble teleoperation system for collecting robot demonstration datasets compatible with **pi0.5 / openpi / LeRobot** training.
 
+**Platform:** Ubuntu 22.04 + ROS 2 Humble
 **Hardware:** Uarm master arm → UR5 follower arm + Weiss Robotics CRG 30-050 gripper.
 
 ---
@@ -12,12 +13,15 @@ ROS Noetic-based teleoperation system for collecting robot demonstration dataset
 teleoperation/
 ├── data_collection/                   # Robot-agnostic data tools
 │   ├── episode_recorder.py            # HDF5 dataset recorder (pi0.5 format)
-│   ├── cam_pub.py                     # Dual RealSense camera ROS publisher
+│   ├── cam_pub.py                     # Dual RealSense camera ROS 2 publisher
 │   ├── play_episode.py                # Visualise a recorded episode
 │   └── test_cam.py                    # Quick single-camera sanity check
 │
-└── uarm/                              # Uarm master arm + UR5 follower arm
-    ├── CMakeLists.txt / package.xml
+└── uarm/                              # ROS 2 package (ament_python)
+    ├── package.xml
+    ├── setup.py / setup.cfg
+    ├── resource/uarm
+    ├── uarm/__init__.py
     └── scripts/
         ├── UR5/
         │   ├── servo2ur5.py           # UR5 teleoperation controller (60 Hz servoJ)
@@ -31,7 +35,7 @@ teleoperation/
 
 ---
 
-## ROS Topic Graph
+## ROS 2 Topic Graph
 
 ```
 Uarm_teleop/feetech_servo_reader.py
@@ -61,17 +65,34 @@ data_collection/episode_recorder.py   subscribes to all four topics above
 
 ---
 
-## Software Requirements
+## Installation
+
+### 1 — ROS 2 Humble
 
 ```bash
-# ROS Noetic
-sudo apt install ros-noetic-desktop-full python3-rospy python3-cv-bridge
-
-# Python dependencies
-pip install pyrealsense2 opencv-python h5py numpy ur-rtde pyserial
+sudo apt install ros-humble-desktop \
+                 python3-colcon-common-extensions \
+                 ros-humble-cv-bridge \
+                 ros-humble-sensor-msgs \
+                 ros-humble-std-msgs
 ```
 
-Grant serial port access (re-login after):
+### 2 — Python dependencies
+
+```bash
+pip install -r teleoperation/uarm/requirements.txt
+```
+
+### 3 — Build the ROS 2 package
+
+```bash
+cd teleoperation
+colcon build --packages-select uarm
+source install/setup.bash
+```
+
+### 4 — Serial port permissions (re-login after)
+
 ```bash
 bash uarm/scripts/add_permission.sh
 # or manually:
@@ -82,7 +103,7 @@ sudo usermod -aG dialout $USER
 
 ## Quick Start
 
-### 1 — Launch the pipeline
+### Launch the full pipeline
 
 ```bash
 bash uarm/scripts/UR5/run_ur5_nodes.sh
@@ -100,7 +121,7 @@ This starts five nodes in parallel:
 
 Press `Ctrl+C` to shut down all nodes cleanly.
 
-### 2 — Collect data
+### Collect data
 
 Focus the **OpenCV preview window**, then use these keys:
 
@@ -140,14 +161,12 @@ attrs: sim, prompt, task, hz, n_steps, timestamp
 
 ### episode_recorder.py — `TASK_CONFIGS`
 
-Edit the `TASK_CONFIGS` dict at the top of the file:
-
 ```python
 TASK_CONFIGS = {
     "default": {
         "dataset_dir": "~/pi05_dataset/default",
-        "episode_len": 500,   # max steps before auto-save
-        "hz": 15,             # recording frequency
+        "episode_len": 500,
+        "hz": 15,
     },
 }
 ```
@@ -156,10 +175,7 @@ Override at runtime:
 
 ```bash
 python3 data_collection/episode_recorder.py \
-    --task default \
-    --data-dir /data/my_task \
-    --hz 20 \
-    --max-steps 300
+    --task default --data-dir /data/my_task --hz 20 --max-steps 300
 ```
 
 ### cam_pub.py — Camera serial numbers
@@ -188,3 +204,22 @@ rs-enumerate-devices | grep Serial
 | `GRIPPER_MAX_MM` | `30.0` | CRG 30-050 max stroke (mm) |
 
 > Keep `UR5_IP`, `GRIPPER_PORT`, and `GRIPPER_MAX_MM` in sync between `servo2ur5.py` and `ur5_pub.py`.
+
+---
+
+## ROS 1 → ROS 2 Migration Summary
+
+| ROS 1 (Noetic) | ROS 2 (Humble) |
+|---|---|
+| `rospy` | `rclpy` |
+| `rospy.init_node('x')` | `super().__init__('x')` in `Node` subclass |
+| `rospy.Publisher(topic, T, queue_size=N)` | `self.create_publisher(T, topic, N)` |
+| `rospy.Subscriber(topic, T, cb)` | `self.create_subscription(T, topic, cb, N)` |
+| `rospy.Timer(rospy.Duration(dt), cb)` | `self.create_timer(dt, cb)` *(no event arg)* |
+| `rospy.Rate(hz); rate.sleep()` | `time.sleep(1/hz)` + spin thread |
+| `rospy.is_shutdown()` | `rclpy.ok()` |
+| `rospy.spin()` | `rclpy.spin(node)` |
+| `rospy.loginfo / logwarn` | `self.get_logger().info / warning` |
+| `catkin` + `CMakeLists.txt` | `ament_python` + `setup.py` |
+| `rosrun pkg script` | `python3 path/to/script.py` |
+| `roscore` required | Not needed |

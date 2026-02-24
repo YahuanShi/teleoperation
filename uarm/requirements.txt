@@ -1,0 +1,45 @@
+# =============================================================================
+# Teleoperation Requirements
+# Ubuntu 22.04 + ROS 2 Humble
+# UR5 + Weiss CRG 30-050 + Uarm master arm + RealSense cameras
+# =============================================================================
+#
+# 1. Install ROS 2 Humble (managed by apt — do NOT pip-install these):
+#
+#   sudo apt install ros-humble-desktop \
+#                    python3-colcon-common-extensions \
+#                    ros-humble-cv-bridge \
+#                    ros-humble-sensor-msgs \
+#                    ros-humble-std-msgs
+#
+# 2. Build the uarm package (from teleoperation/ root):
+#
+#   cd teleoperation
+#   colcon build --packages-select uarm
+#   source install/setup.bash
+#
+# 3. Install pip dependencies:
+#
+#   pip install -r requirements.txt
+# =============================================================================
+
+# ── UR5 follower arm ──────────────────────────────────────────────────────────
+ur-rtde                         # RTDE real-time control + receive interface
+
+# ── Weiss CRG 30-050 gripper (USB serial) ─────────────────────────────────────
+pyserial==3.5
+
+# ── Uarm master arm (Feetech servos) ──────────────────────────────────────────
+feetech-servo-sdk==1.0.0
+
+# ── RealSense cameras ──────────────────────────────────────────────────────────
+pyrealsense2==2.55.1.6486
+
+# ── Data collection ────────────────────────────────────────────────────────────
+h5py==3.11.0
+numpy==1.26.4
+opencv-python==4.11.0.86
+
+# ── Utilities ──────────────────────────────────────────────────────────────────
+PyYAML==6.0.2
+tqdm==4.67.1

@@ -12,25 +12,25 @@
 #   bash run_ur5_nodes.sh
 #
 # Requirements:
-#   pip install ur-rtde pyserial
+#   Ubuntu 22.04 + ROS 2 Humble
+#   pip install ur-rtde pyserial pyrealsense2 opencv-python h5py numpy feetech-servo-sdk
 #   UR5 reachable at UR5_IP (edit servo2ur5.py and ur5_pub.py)
 #   CRG 30-050 USB cable connected → /dev/ttyACM0 (edit GRIPPER_PORT in both .py files)
 #   Serial port permission: sudo usermod -aG dialout $USER  (then re-login)
 
-set -e
-
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-UARM_SCRIPTS="$SCRIPT_DIR/.."                                  # → .../teleoperation/uarm/scripts
-DATA_COLLECTION="$UARM_SCRIPTS/../../data_collection"          # → .../teleoperation/data_collection
+UARM_SCRIPTS="$SCRIPT_DIR/.."                          # → .../teleoperation/uarm/scripts
+DATA_COLLECTION="$UARM_SCRIPTS/../../data_collection"  # → .../teleoperation/data_collection
 
-# ── ROS environment ──────────────────────────────────────────────────────────
-source /opt/ros/noetic/setup.bash
-# Adjust path if your catkin workspace is elsewhere:
-if [ -f "$UARM_SCRIPTS/../../../devel/setup.bash" ]; then
-    source "$UARM_SCRIPTS/../../../devel/setup.bash"
+# ── ROS 2 environment ────────────────────────────────────────────────────────
+source /opt/ros/humble/setup.bash
+
+# Source colcon workspace overlay if built (adjust path if needed)
+if [ -f "$UARM_SCRIPTS/../../../install/setup.bash" ]; then
+    source "$UARM_SCRIPTS/../../../install/setup.bash"
 fi
 
-echo "[INFO] ROS master: ${ROS_MASTER_URI:-http://localhost:11311}"
+echo "[INFO] ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}"
 echo "[INFO] Starting UR5 teleoperation nodes..."
 
 # ── 1. Camera publisher ───────────────────────────────────────────────────────
