@@ -9,7 +9,7 @@ episodes in HDF5 format directly compatible with openpi / LeRobot training.
 Topics consumed:
     /cam_1         sensor_msgs/Image       → exterior camera
     /cam_2         sensor_msgs/Image       → wrist / gripper camera
-    /robot_state   Float64MultiArray (7,)  → actual joints [deg ×6] + gripper [0-1]
+    /robot_state   Float64MultiArray (7,)  → actual joints [deg x6] + gripper [0-1]
     /robot_action  Float64MultiArray (7,)  → commanded action (same layout)
 
 HDF5 layout written per episode (aloha-compatible, pi0.5 ready):
@@ -35,6 +35,8 @@ Usage:
 
 import argparse
 from collections import deque
+import contextlib
+import datetime
 import os
 import signal
 import sys
@@ -54,14 +56,19 @@ from std_msgs.msg import Float64MultiArray
 # Configuration
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# Resolve openpi project root: this script lives at
+#   <openpi_root>/teleoperation/data_collection/episode_recorder.py
+_OPENPI_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+_TODAY = datetime.datetime.now(tz=datetime.UTC).date().strftime("%Y%m%d")
+
 TASK_CONFIGS: dict = {
     "default": {
-        "dataset_dir": os.path.expanduser("~/pi05_dataset/default"),
+        "dataset_dir": os.path.join(_OPENPI_ROOT, "dataset", f"ur5_dataset_{_TODAY}"),
         "episode_len": 500,
         "hz": 15,
     },
     # "pick_place": {
-    #     "dataset_dir": os.path.expanduser("~/pi05_dataset/pick_place"),
+    #     "dataset_dir": os.path.join(_OPENPI_ROOT, "dataset", f"ur5_pick_place_{_TODAY}"),
     #     "episode_len": 300,
     #     "hz": 15,
     # },
@@ -209,8 +216,8 @@ class DataBuffer:
 
 
 def save_episode_hdf5(episode: dict, path: str, prompt: str, task: str, hz: float) -> None:
-    T = len(episode["state"])
-    assert T > 0, "Cannot save an empty episode"
+    n_steps = len(episode["state"])
+    assert n_steps > 0, "Cannot save an empty episode"
 
     cam1 = np.stack(episode["cam1_rgb"])
     cam2 = np.stack(episode["cam2_rgb"])
@@ -225,7 +232,7 @@ def save_episode_hdf5(episode: dict, path: str, prompt: str, task: str, hz: floa
         root.attrs["prompt"] = prompt
         root.attrs["task"] = task
         root.attrs["hz"] = hz
-        root.attrs["n_steps"] = T
+        root.attrs["n_steps"] = n_steps
         root.attrs["timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
 
         chunk = (1, IMAGE_H, IMAGE_W, 3)
@@ -236,7 +243,7 @@ def save_episode_hdf5(episode: dict, path: str, prompt: str, task: str, hz: floa
         obs.create_dataset("qpos", data=qpos, dtype="float64", compression="gzip", compression_opts=4)
         root.create_dataset("action", data=action, dtype="float64", compression="gzip", compression_opts=4)
 
-    print(f"[Recorder] Saved {T} steps → {path}  ({time.time()-t0:.2f} s)")
+    print(f"[Recorder] Saved {n_steps} steps → {path}  ({time.time()-t0:.2f} s)")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -249,10 +256,8 @@ def get_next_episode_idx(dataset_dir: str) -> int:
     indices = []
     for fname in os.listdir(dataset_dir):
         if fname.startswith("episode_") and fname.endswith(".hdf5"):
-            try:
+            with contextlib.suppress(ValueError):
                 indices.append(int(fname[len("episode_") : -len(".hdf5")]))
-            except ValueError:
-                pass
     return max(indices, default=-1) + 1
 
 
@@ -396,9 +401,9 @@ def run(args) -> None:
     buf = DataBuffer(node)
 
     # ── OpenCV preview window ─────────────────────────────────────────────────
-    WIN = "pi0.5 Recorder  [exterior | wrist]"
-    cv2.namedWindow(WIN, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(WIN, PREVIEW_W * 2, PREVIEW_H)
+    win = "pi0.5 Recorder  [exterior | wrist]"
+    cv2.namedWindow(win, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(win, PREVIEW_W * 2, PREVIEW_H)
 
     # ── state + buffers ───────────────────────────────────────────────────────
     rec_state: str = WAITING
@@ -420,7 +425,7 @@ def run(args) -> None:
         while rclpy.ok():
             c1_bgr, c2_bgr = buf.get_preview_frames()
             frame = build_preview(c1_bgr, c2_bgr, rec_state, len(step_ts), buf.avg_hz(), prompt, episode_idx)
-            cv2.imshow(WIN, frame)
+            cv2.imshow(win, frame)
             key = cv2.waitKey(10) & 0xFF
 
             # ── P — Set Task Prompt (any state) ───────────────────────────────
@@ -433,8 +438,8 @@ def run(args) -> None:
                     node.get_logger().info(f'[Recorder] Prompt set: "{prompt}"')
                 else:
                     node.get_logger().warning("[Recorder] Empty input — prompt unchanged.")
-                cv2.namedWindow(WIN, cv2.WINDOW_NORMAL)
-                cv2.resizeWindow(WIN, PREVIEW_W * 2, PREVIEW_H)
+                cv2.namedWindow(win, cv2.WINDOW_NORMAL)
+                cv2.resizeWindow(win, PREVIEW_W * 2, PREVIEW_H)
 
             # ── B — Begin Recording (WAITING only) ────────────────────────────
             elif (key == ord("b") or key == ord("B")) and rec_state == WAITING:
