@@ -112,7 +112,7 @@ class GroupSyncRead:
             calSum = scs_id + (data_length + 2) + Error
             data = [Error]
             data.extend(rxpacket[rx_index : rx_index + data_length])
-            for i in range(data_length):
+            for _i in range(data_length):
                 calSum += rxpacket[rx_index]
                 rx_index += 1
             calSum = ~calSum & 0xFF

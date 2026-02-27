@@ -27,8 +27,7 @@ def pwm_to_angle(response_str, pwm_min=500, pwm_max=2500, angle_range=270):
         return None
     pwm_val = int(match.group(1))
     pwm_span = pwm_max - pwm_min
-    angle = (pwm_val - pwm_min) / pwm_span * angle_range
-    return angle
+    return (pwm_val - pwm_min) / pwm_span * angle_range
 
 
 def angle_to_gripper(angle_deg, angle_range=270, pos_min=50, pos_max=730):

@@ -33,8 +33,7 @@ class ServoReaderNode:
             return None
         pwm_val = int(match.group(1))
         pwm_span = pwm_max - pwm_min
-        angle = (pwm_val - pwm_min) / pwm_span * angle_range
-        return angle
+        return (pwm_val - pwm_min) / pwm_span * angle_range
 
     def _init_servos(self):
         self.send_command("#000PVER!")
@@ -51,7 +50,6 @@ class ServoReaderNode:
         target_angle_offset = [0.0] * 7  # Target angle for each servo
         num_interp = 5  # Interpolation steps
         step_size = 1  # Minimum change threshold
-        danger_thres = 90
 
         while not rospy.is_shutdown():
             for i in range(7):
@@ -69,7 +67,7 @@ class ServoReaderNode:
                     rospy.logwarn(f"Servo {i} response error: {response.strip()}")
 
             # Interpolate to approach target angle
-            for step in range(num_interp):
+            for _step in range(num_interp):
                 for i in range(7):
                     delta = target_angle_offset[i] - angle_offset[i]
                     angle_offset[i] += delta * 0.2  # Lazy interpolation, coefficient < 1 for adjustable smoothness

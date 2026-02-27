@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 
-import sys
 import time
 
 import serial
@@ -54,8 +53,7 @@ class PortHandler:
         return self.ser.in_waiting
 
     def readPort(self, length):
-        if sys.version_info > (3, 0):
-            return self.ser.read(length)
+        return self.ser.read(length)
         return [ord(ch) for ch in self.ser.read(length)]
 
     def writePort(self, packet):

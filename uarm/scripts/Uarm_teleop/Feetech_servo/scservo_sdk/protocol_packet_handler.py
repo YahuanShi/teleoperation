@@ -181,10 +181,7 @@ class protocol_packet_handler:
                     if rx_length < wait_length:
                         # check timeout
                         if self.portHandler.isPacketTimeout():
-                            if rx_length == 0:
-                                result = COMM_RX_TIMEOUT
-                            else:
-                                result = COMM_RX_CORRUPT
+                            result = COMM_RX_TIMEOUT if rx_length == 0 else COMM_RX_CORRUPT
                             break
                         continue
 
@@ -194,10 +191,7 @@ class protocol_packet_handler:
                     checksum = ~checksum & 0xFF
 
                     # verify checksum
-                    if rxpacket[wait_length - 1] == checksum:
-                        result = COMM_SUCCESS
-                    else:
-                        result = COMM_RX_CORRUPT
+                    result = COMM_SUCCESS if rxpacket[wait_length - 1] == checksum else COMM_RX_CORRUPT
                     break
 
                 # remove unnecessary packets
@@ -206,10 +200,7 @@ class protocol_packet_handler:
 
             # check timeout
             elif self.portHandler.isPacketTimeout():
-                if rx_length == 0:
-                    result = COMM_RX_TIMEOUT
-                else:
-                    result = COMM_RX_CORRUPT
+                result = COMM_RX_TIMEOUT if rx_length == 0 else COMM_RX_CORRUPT
                 break
 
         self.portHandler.is_using = False
@@ -491,8 +482,7 @@ class protocol_packet_handler:
         txpacket[PKT_PARAMETER0 + 2 : PKT_PARAMETER0 + 2 + param_length] = param[0:param_length]
 
         # print(txpacket)
-        result = self.txPacket(txpacket)
-        return result
+        return self.txPacket(txpacket)
 
     def syncReadRx(self, data_length, param_length):
         wait_length = (6 + data_length) * param_length
@@ -507,10 +497,7 @@ class protocol_packet_handler:
                 break
             # check timeout
             if self.portHandler.isPacketTimeout():
-                if rx_length == 0:
-                    result = COMM_RX_TIMEOUT
-                else:
-                    result = COMM_RX_CORRUPT
+                result = COMM_RX_TIMEOUT if rx_length == 0 else COMM_RX_CORRUPT
                 break
         self.portHandler.is_using = False
         return result, rxpacket
