@@ -28,13 +28,13 @@ from std_msgs.msg import Float64MultiArray
 try:
     import rtde_control
     import rtde_receive
-except ImportError:
-    raise ImportError("ur_rtde not installed. Run: pip install ur-rtde")
+except ImportError as err:
+    raise ImportError("ur_rtde not installed. Run: pip install ur-rtde") from err
 
 try:
     import serial
-except ImportError:
-    raise ImportError("pyserial not installed. Run: pip install pyserial")
+except ImportError as err:
+    raise ImportError("pyserial not installed. Run: pip install pyserial") from err
 
 # ══════════════════════════════ Configuration ══════════════════════════════
 
@@ -297,7 +297,7 @@ class UR5TeleopNode(Node):
                 self.get_logger().warning(f"[UR5Teleop] servoJ error: {e}")
 
             gripper_norm = float(np.clip(gripper_mm / GRIPPER_MAX_MM, 0.0, 1.0))
-            action_data = np.degrees(cmd_rad).tolist() + [gripper_norm]
+            action_data = [*np.degrees(cmd_rad).tolist(), gripper_norm]
             msg = Float64MultiArray()
             msg.data = action_data
             self._pub.publish(msg)

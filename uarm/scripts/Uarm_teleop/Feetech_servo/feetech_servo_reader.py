@@ -17,7 +17,7 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if _SCRIPT_DIR not in sys.path:
     sys.path.insert(0, _SCRIPT_DIR)
 
-from scservo_sdk import *
+from scservo_sdk import *  # noqa: E402
 
 
 class ServoReaderNode(Node):
@@ -50,11 +50,8 @@ class ServoReaderNode(Node):
 
             raw_pos, result, error = self.packetHandler.read2ByteTxRx(scs_id, SMS_STS_PRESENT_POSITION_L)
 
-            Homing_Offset = raw_pos - 2047
-            if Homing_Offset < 0:
-                encoded_offset = (1 << 11) | abs(Homing_Offset)
-            else:
-                encoded_offset = Homing_Offset
+            homing_offset = raw_pos - 2047
+            encoded_offset = 1 << 11 | abs(homing_offset) if homing_offset < 0 else homing_offset
 
             comm, error = self.packetHandler.write2ByteTxRx(scs_id, SMS_STS_OFS_L, encoded_offset)
             if error == 0:
@@ -68,11 +65,11 @@ class ServoReaderNode(Node):
             scs_id = i + 1
             scs_addparam_result = self.groupSyncRead.addParam(scs_id)
             if not scs_addparam_result:
-                self.get_logger().warning("[ID:%03d] groupSyncRead addparam failed" % scs_id)
+                self.get_logger().warning(f"[ID:{scs_id:03d}] groupSyncRead addparam failed")
 
         scs_comm_result = self.groupSyncRead.txRxPacket()
         if scs_comm_result != COMM_SUCCESS:
-            self.get_logger().warning("%s" % self.packetHandler.getTxRxResult(scs_comm_result))
+            self.get_logger().warning(f"{self.packetHandler.getTxRxResult(scs_comm_result)}")
 
         for i in range(7):
             scs_id = i + 1
@@ -82,10 +79,10 @@ class ServoReaderNode(Node):
                 self.zero_angles[i] = scs_present_position
             else:
                 self.zero_angles[i] = 2047
-                self.get_logger().warning("[ID:%03d] groupSyncRead getdata failed" % scs_id)
+                self.get_logger().warning(f"[ID:{scs_id:03d}] groupSyncRead getdata failed")
                 continue
             if scs_error != 0:
-                self.get_logger().warning("%s" % self.packetHandler.getRxPacketError(scs_error))
+                self.get_logger().warning(f"{self.packetHandler.getRxPacketError(scs_error)}")
 
         self.get_logger().info(f"Zero positions (raw): {self.zero_angles}")
         self.groupSyncRead.clearParam()
@@ -101,7 +98,7 @@ class ServoReaderNode(Node):
             for i in range(7):
                 scs_addparam_result = self.groupSyncRead.addParam(i + 1)
                 if not scs_addparam_result:
-                    self.get_logger().warning("[ID:%03d] groupSyncRead addparam failed" % (i + 1))
+                    self.get_logger().warning(f"[ID:{i + 1:03d}] groupSyncRead addparam failed")
 
             scs_comm_result = self.groupSyncRead.txRxPacket()
             if scs_comm_result != COMM_SUCCESS:
@@ -124,7 +121,7 @@ class ServoReaderNode(Node):
             self.groupSyncRead.clearParam()
 
             # Interpolate to approach target angle
-            for step in range(num_interp):
+            for _step in range(num_interp):
                 for i in range(7):
                     delta = target_angle_offset[i] - angle_offset[i]
                     angle_offset[i] += delta * 0.2

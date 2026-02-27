@@ -11,6 +11,7 @@ does not delay the other.  Cleanup is done via destroy_node() rather
 than __del__ so the pipeline stop is guaranteed on shutdown.
 """
 
+import contextlib
 import threading
 
 import cv2
@@ -102,14 +103,10 @@ class CameraNode(Node):
 
     def destroy_node(self):
         """Stop camera pipelines before the node is torn down."""
-        try:
+        with contextlib.suppress(Exception):
             self._pipe1.stop()
-        except Exception:
-            pass
-        try:
+        with contextlib.suppress(Exception):
             self._pipe2.stop()
-        except Exception:
-            pass
         cv2.destroyAllWindows()
         super().destroy_node()
 

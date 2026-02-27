@@ -25,8 +25,8 @@ from std_msgs.msg import Float64MultiArray
 
 try:
     import rtde_receive
-except ImportError:
-    raise ImportError("ur_rtde not installed. Run: pip install ur-rtde")
+except ImportError as err:
+    raise ImportError("ur_rtde not installed. Run: pip install ur-rtde") from err
 
 # ══════════════════════════════ Configuration ══════════════════════════════
 # Keep UR5_IP in sync with servo2ur5.py
@@ -77,7 +77,7 @@ class UR5StatePublisher(Node):
             with self._action_lock:
                 grip_norm = self._gripper_norm
 
-            state = q_deg + [grip_norm]
+            state = [*q_deg, grip_norm]
             msg = Float64MultiArray()
             msg.data = state
             self._pub.publish(msg)
