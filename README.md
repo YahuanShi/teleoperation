@@ -14,7 +14,8 @@ teleoperation/
 ├── data_collection/                   # Robot-agnostic data tools
 │   ├── episode_recorder.py            # HDF5 dataset recorder (pi0.5 format)
 │   ├── cam_pub.py                     # Dual RealSense camera ROS 2 publisher
-│   ├── play_episode.py                # Visualise a recorded episode
+│   ├── visualize_episode.py           # Live viewer during recording (ROS 2 subscriber)
+│   ├── replay_episode.py              # Offline HDF5 episode viewer (no ROS)
 │   └── test_cam.py                    # Quick single-camera sanity check
 │
 └── uarm/                              # ROS 2 package (ament_python)
@@ -164,7 +165,7 @@ attrs: sim, prompt, task, hz, n_steps, timestamp
 ```python
 TASK_CONFIGS = {
     "default": {
-        "dataset_dir": "~/pi05_dataset/default",
+        "dataset_dir": "openpi/dataset/ur5_dataset_YYYYMMDD",   # date auto-filled at runtime
         "episode_len": 500,
         "hz": 15,
     },

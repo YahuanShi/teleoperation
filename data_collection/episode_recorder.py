@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-pi0.5 Episode Recorder  (ROS 2 Humble)
+Episode Recorder
 ======================
 
 Subscribes to Uarm / UR5 teleoperation ROS topics and records demonstration
@@ -401,7 +401,7 @@ def run(args) -> None:
     buf = DataBuffer(node)
 
     # ── OpenCV preview window ─────────────────────────────────────────────────
-    win = "pi0.5 Recorder  [exterior | wrist]"
+    win = "Recorder  [exterior | wrist]"
     cv2.namedWindow(win, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(win, PREVIEW_W * 2, PREVIEW_H)
 
