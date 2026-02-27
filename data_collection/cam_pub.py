@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Dual RealSense Camera Publisher  (ROS 2 Humble)
+Dual RealSense Camera Publisher
 
 Publishes:
     /cam_1  sensor_msgs/Image   exterior camera  (BGR8, 30 Hz)
@@ -22,7 +22,7 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
 
-# ── Camera serial numbers — update these to match your hardware ──────────────
+# ── Camera serial numbers ──────────────
 SERIAL_1 = "338622073582"  # exterior camera
 SERIAL_2 = "148522073685"  # wrist camera
 

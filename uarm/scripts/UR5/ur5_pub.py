@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-UR5 State Publisher  (ROS 2 Humble)
+UR5 State Publisher
 
 Published topic:
     /robot_state  (Float64MultiArray, 7 floats:
@@ -31,7 +31,7 @@ except ImportError as err:
 # ══════════════════════════════ Configuration ══════════════════════════════
 # Keep UR5_IP in sync with servo2ur5.py
 
-UR5_IP = "192.168.1.100"  # ← change to your UR5 controller IP
+UR5_IP = "192.168.1.89" 
 PUBLISH_HZ = 10  # /robot_state publish rate
 
 # ══════════════════════════════ State Publisher Node ══════════════════════════

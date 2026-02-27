@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-UR5 + Weiss Robotics CRG 30-050 Teleoperation Node  (ROS 2 Humble)
+UR5 + Weiss Robotics CRG 30-050 Teleoperation Node
 
 Subscribes: /servo_angles  (Float64MultiArray, 7 floats in degrees relative to home,
                              published by Uarm_teleop master arm)
@@ -38,13 +38,13 @@ except ImportError as err:
 
 # ══════════════════════════════ Configuration ══════════════════════════════
 
-UR5_IP = "192.168.1.100"  # ← change to your UR5 controller IP
+UR5_IP = "192.168.1.98"  # ← change to your UR5 controller IP
 
 # CRG 30-050 USB serial port (Linux: /dev/ttyACM0, may vary)
 GRIPPER_PORT = "/dev/ttyACM0"
 GRIPPER_BAUDRATE = 115200
 
-# CRG 30-050: 30 mm total stroke, 50 N max force
+# CRG 30-050: 30 mm total stroke, 28 N max force
 GRIPPER_MAX_MM = 30.0
 GRIPPER_SPEED_MM_S = 50.0
 GRIPPER_FORCE_N = 40.0
