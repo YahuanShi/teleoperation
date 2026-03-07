@@ -1,0 +1,22 @@
+# Virtual environment (created by install.sh)
+.venv/
+teleop/
+
+# Colcon build artifacts
+install/
+build/
+log/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+
+# Datasets (large binary files — store separately)
+*.hdf5
+*.h5
+
+# OS
+.DS_Store
