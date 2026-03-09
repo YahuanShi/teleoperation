@@ -23,8 +23,8 @@ from rclpy.node import Node
 from sensor_msgs.msg import Image
 
 # ── Camera serial numbers ──────────────
-SERIAL_1 = "338622073582"  # exterior camera
-SERIAL_2 = "148522073685"  # wrist camera
+SERIAL_1 = "106523022167"  # exterior camera
+SERIAL_2 = "254723071135"  # wrist camera
 
 PUBLISH_HZ = 30  # frames per second
 

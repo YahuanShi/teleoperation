@@ -77,8 +77,8 @@ These values must be updated to match each machine's hardware before running:
 ### Camera serial numbers — `data_collection/cam_pub.py`
 
 ```python
-config_1.enable_device('338622073582')  # exterior camera
-config_2.enable_device('148522073685')  # wrist camera
+config_1.enable_device('106523022167')  # exterior camera
+config_2.enable_device('254723071135')  # wrist camera
 ```
 
 Find your serial numbers:
