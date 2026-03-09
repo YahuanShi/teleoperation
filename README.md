@@ -48,8 +48,8 @@ sudo apt install ros-humble-desktop \
 **2 — Python venv + dependencies**
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv teleop
+source teleop/bin/activate
 pip install -r uarm/requirements.txt
 ```
 
