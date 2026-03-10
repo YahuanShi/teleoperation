@@ -22,7 +22,7 @@ python3 -m venv "$SCRIPT_DIR/teleop"
 source "$SCRIPT_DIR/teleop/bin/activate"
 
 pip install --upgrade pip -q
-pip install -r "$SCRIPT_DIR/uarm/requirements.txt"
+pip install -r "$SCRIPT_DIR/requirements.txt"
 
 # ── 3. Build ROS 2 package ────────────────────────────────────────────────────
 echo "[3/5] Building uarm ROS 2 package..."

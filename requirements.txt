@@ -33,13 +33,13 @@ pyserial==3.5
 feetech-servo-sdk==1.0.0
 
 # ── RealSense cameras ──────────────────────────────────────────────────────────
-pyrealsense2==2.55.1.6486
+pyrealsense2>=2.55.1
 
 # ── Data collection ────────────────────────────────────────────────────────────
-h5py==3.11.0
-numpy==1.26.4
-opencv-python==4.11.0.86
+h5py>=3.11.0
+numpy==1.26.4                   # pinned: cv_bridge (ros-humble) requires numpy<2
+opencv-python>=4.11.0
 
 # ── Utilities ──────────────────────────────────────────────────────────────────
 PyYAML==6.0.2
-tqdm==4.67.1
+tqdm>=4.67.0
