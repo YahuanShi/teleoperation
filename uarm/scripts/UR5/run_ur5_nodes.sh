@@ -13,7 +13,7 @@
 #
 # Requirements:
 #   Ubuntu 22.04 + ROS 2 Humble
-#   pip install ur-rtde pyserial pyrealsense2 opencv-python h5py numpy feetech-servo-sdk
+#   pip install ur-rtde pyserial pyrealsense2 opencv-python h5py numpy
 #   UR5 reachable at UR5_IP (edit servo2ur5.py and ur5_pub.py)
 #   CRG 30-050 USB cable connected → /dev/ttyACM0 (edit GRIPPER_PORT in both .py files)
 #   Serial port permission: sudo usermod -aG dialout $USER  (then re-login)
@@ -44,10 +44,9 @@ PID_STATE=$!
 echo "[INFO] ur5_pub.py  → PID $PID_STATE"
 
 # ── 3. Uarm master-arm servo reader ─────────────────────────────────────────
-#    Use the Feetech reader by default; swap to Zhonglin_servo if needed.
-python3 "$UARM_SCRIPTS/Uarm_teleop/Feetech_servo/feetech_servo_reader.py" &
+python3 "$UARM_SCRIPTS/Uarm_teleop/Zhonglin_servo/servo_reader.py" &
 PID_SERVO=$!
-echo "[INFO] feetech_servo_reader.py  → PID $PID_SERVO"
+echo "[INFO] servo_reader.py (Zhonglin)  → PID $PID_SERVO"
 
 # ── 4. UR5 + Weiss CRG 30-050 teleoperation controller ──────────────────────
 python3 "$SCRIPT_DIR/servo2ur5.py" &

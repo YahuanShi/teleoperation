@@ -27,7 +27,7 @@ except ImportError:
     sys.exit(1)
 
 # Must match UR5_IP in servo2ur5.py AND ur5_pub.py
-UR5_IP = "192.168.1.98"
+UR5_IP = "192.168.1.100"
 
 # Safe home position — matches servo2ur5.py UR5_HOME_DEG
 HOME_DEG = [0.0, -90.0, 90.0, -90.0, -90.0, 0.0]

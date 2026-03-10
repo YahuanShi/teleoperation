@@ -37,7 +37,7 @@ except ImportError as err:
 
 # ══════════════════════════════ Configuration ══════════════════════════════
 
-UR5_IP = "192.168.1.98"  # ← change to your UR5 controller IP
+UR5_IP = "192.168.1.100"  # ← change to your UR5 controller IP
 
 # CRG 30-050 USB serial port (Linux: /dev/ttyACM0, may vary)
 GRIPPER_PORT = "/dev/ttyACM0"
