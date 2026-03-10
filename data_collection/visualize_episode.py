@@ -151,18 +151,18 @@ def _build_info_panel(state: np.ndarray | None, action: np.ndarray | None, hz: f
     _put(panel, f"State topic  {hz:.1f} Hz", (_PAD, 36), color=bar_color, scale=0.5)
 
     # ── Joint obs ─────────────────────────────────────────────────────────
-    j_obs = "  ".join(f"J{i+1}:{state[i]:+7.2f}°" for i in range(6))
+    j_obs = "  ".join(f"J{i + 1}:{state[i]:+7.2f}°" for i in range(6))
     _put(panel, f"Obs  joints : {j_obs}", (_PAD, 62), color=_WHITE, scale=0.46)
     _put(panel, f"Obs  gripper: {state[6]:.3f}  (0=closed  1=open)", (_PAD, 84), color=_WHITE, scale=0.46)
 
     # ── Action ────────────────────────────────────────────────────────────
-    j_act = "  ".join(f"J{i+1}:{action[i]:+7.2f}°" for i in range(6))
+    j_act = "  ".join(f"J{i + 1}:{action[i]:+7.2f}°" for i in range(6))
     _put(panel, f"Cmd  joints : {j_act}", (_PAD, 110), color=_WHITE, scale=0.46)
     _put(panel, f"Cmd  gripper: {action[6]:.3f}", (_PAD, 132), color=_WHITE, scale=0.46)
 
     # ── Delta (tracking error) ────────────────────────────────────────────
     delta = action[:6] - state[:6]
-    d_str = "  ".join(f"J{i+1}:{delta[i]:+6.2f}°" for i in range(6))
+    d_str = "  ".join(f"J{i + 1}:{delta[i]:+6.2f}°" for i in range(6))
     _put(panel, f"Delta       : {d_str}", (_PAD, 158), color=_GRAY, scale=0.43)
 
     # ── Hint ──────────────────────────────────────────────────────────────

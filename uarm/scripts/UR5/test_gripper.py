@@ -15,12 +15,13 @@ Press Ctrl+C to abort at any time.
 
 import sys
 import time
+
 import serial
 
 PORT = "/dev/ttyACM0"
 BAUDRATE = 115200
-PDIN_PER_MM = 163.17   # encoder units per mm (empirically measured)
-CLOSED_PDIN = 150       # approximate PDIN at fully closed (calibrated by home())
+PDIN_PER_MM = 163.17  # encoder units per mm (empirically measured)
+CLOSED_PDIN = 150  # approximate PDIN at fully closed (calibrated by home())
 
 
 def read_pdin(ser: serial.Serial, timeout: float = 1.0) -> int | None:

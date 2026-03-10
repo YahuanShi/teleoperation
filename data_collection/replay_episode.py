@@ -65,7 +65,7 @@ def resolve_path(raw: Path, episode_idx: int) -> Path:
         if not candidates:
             sys.exit(f"No episode_*.hdf5 files found in {raw}")
         if episode_idx >= len(candidates):
-            sys.exit(f"Episode index {episode_idx} out of range " f"(found {len(candidates)} episodes in {raw})")
+            sys.exit(f"Episode index {episode_idx} out of range (found {len(candidates)} episodes in {raw})")
         return candidates[episode_idx]
     sys.exit(f"Path not found: {raw}")
 
@@ -106,12 +106,12 @@ def make_info_panel(
     _put(panel, f"Task: {short}", (_PAD, 58), color=_YELLOW)
 
     # ── Observation ───────────────────────────────────────────────────────
-    j_obs = "  ".join(f"J{i+1}:{qpos[i]:+7.2f}" for i in range(6))
+    j_obs = "  ".join(f"J{i + 1}:{qpos[i]:+7.2f}" for i in range(6))
     _put(panel, f"Obs  joints [deg]: {j_obs}", (_PAD, 82), color=_WHITE)
     _put(panel, f"Obs  gripper     : {qpos[6]:.3f}  (0=closed  1=open)", (_PAD, 102), color=_WHITE)
 
     # ── Action ────────────────────────────────────────────────────────────
-    j_act = "  ".join(f"J{i+1}:{action[i]:+7.2f}" for i in range(6))
+    j_act = "  ".join(f"J{i + 1}:{action[i]:+7.2f}" for i in range(6))
     _put(panel, f"Cmd  joints [deg]: {j_act}", (_PAD, 126), color=_WHITE)
     _put(panel, f"Cmd  gripper     : {action[6]:.3f}", (_PAD, 146), color=_WHITE)
 

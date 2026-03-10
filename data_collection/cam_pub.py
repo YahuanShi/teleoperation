@@ -54,7 +54,7 @@ class CameraNode(Node):
         # Timer publishes both frames at PUBLISH_HZ
         self.create_timer(1.0 / PUBLISH_HZ, self._publish_frames)
 
-        self.get_logger().info(f"[CamPub] Cameras started — publishing /cam_1 and /cam_2 " f"at {PUBLISH_HZ} Hz.")
+        self.get_logger().info(f"[CamPub] Cameras started — publishing /cam_1 and /cam_2 at {PUBLISH_HZ} Hz.")
 
     # ── pipeline helpers ─────────────────────────────────────────────────────
 

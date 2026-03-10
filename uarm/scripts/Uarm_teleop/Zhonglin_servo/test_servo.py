@@ -24,16 +24,17 @@ Press Ctrl+C to quit.
 import re
 import sys
 import time
+
 import serial
 
-PORT     = "/dev/ttyUSB0"
+PORT = "/dev/ttyUSB0"
 BAUDRATE = 115200
 N_SERVOS = 7
-SERVO_IDS = list(range(N_SERVOS))   # 0–6
+SERVO_IDS = list(range(N_SERVOS))  # 0–6
 
-PWM_MIN    = 500
-PWM_MAX    = 2500
-ANGLE_RANGE = 270.0   # degrees full span
+PWM_MIN = 500
+PWM_MAX = 2500
+ANGLE_RANGE = 270.0  # degrees full span
 
 
 def send(ser: serial.Serial, cmd: str) -> str:
@@ -68,7 +69,7 @@ def main():
     print(f"[OK]  Port {port} opened @ {BAUDRATE} baud")
 
     time.sleep(0.3)
-    send(ser, "#000PVER!")   # wake up / version check
+    send(ser, "#000PVER!")  # wake up / version check
 
     # ── Step 1: Scan servos ───────────────────────────────────────────────────
     print("\nScanning servo IDs 0–6...")
@@ -124,7 +125,7 @@ def main():
                 else:
                     parts.append("  ---  ")
             print("  " + "  ".join(parts), end="\r", flush=True)
-            time.sleep(0.02)   # ~50 Hz
+            time.sleep(0.02)  # ~50 Hz
     except KeyboardInterrupt:
         print("\n\nCtrl+C — exiting.")
     finally:

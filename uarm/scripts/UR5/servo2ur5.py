@@ -97,14 +97,14 @@ class WeissCRGGripper:
     SETPARAM(96) does NOT give proportional position; gripper is binary open/close.
     """
 
-    PDIN_PER_MM  = 163.17       # PDIN encoder units per mm of jaw gap (measured)
+    PDIN_PER_MM = 163.17  # PDIN encoder units per mm of jaw gap (measured)
 
     def __init__(self, port: str = GRIPPER_PORT, baudrate: int = GRIPPER_BAUDRATE, logger=None):
         self._lock = threading.Lock()
         self._logger = logger
         self._ser = serial.Serial(port=port, baudrate=baudrate, timeout=2.0)
         self._position_mm = 0.0
-        self._closed_pdin = 150   # updated by home(); encoder count at fully closed
+        self._closed_pdin = 150  # updated by home(); encoder count at fully closed
         self._log_info(f"Opened {port} @ {baudrate} baud")
 
     def _log_info(self, msg: str):
@@ -118,7 +118,7 @@ class WeissCRGGripper:
     def _parse_pdin(self, line: str):
         """Update cached position from @PDIN=[B0,B1,B2,B3],N push message."""
         try:
-            data = line[7:].split("]")[0].split(",")
+            data = line[7:].split("]", maxsplit=1)[0].split(",")
             pdin_raw = (int(data[0], 16) << 8) | int(data[1], 16)
             self._position_mm = max(0.0, (pdin_raw - self._closed_pdin) / self.PDIN_PER_MM)
         except Exception:
@@ -274,9 +274,7 @@ class UR5TeleopNode(Node):
         self._gripper_thread = threading.Thread(target=self._gripper_loop, daemon=True)
         self._gripper_thread.start()
 
-        self.get_logger().info(
-            f"[UR5Teleop] Ready — streaming servoJ at {CONTROL_HZ} Hz, " f"gripper at {GRIPPER_HZ} Hz."
-        )
+        self.get_logger().info(f"[UR5Teleop] Ready — streaming servoJ at {CONTROL_HZ} Hz, gripper at {GRIPPER_HZ} Hz.")
 
     # ── angle mapping ─────────────────────────────────────────────────────────
 
@@ -320,9 +318,7 @@ class UR5TeleopNode(Node):
             if want_open != last_open:
                 self.gripper.move_to_pos(target_mm)
                 last_open = want_open
-                self.get_logger().info(
-                    f"[UR5Teleop] Gripper {'opening' if want_open else 'closing'}"
-                )
+                self.get_logger().info(f"[UR5Teleop] Gripper {'opening' if want_open else 'closing'}")
             time.sleep(dt)
 
     # ── main control loop ─────────────────────────────────────────────────────

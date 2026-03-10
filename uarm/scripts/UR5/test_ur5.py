@@ -17,6 +17,7 @@ Press Ctrl+C to abort at any time.
 
 import sys
 import time
+
 import numpy as np
 
 try:
@@ -54,7 +55,7 @@ def main():
     try:
         q_rad = rtde_r.getActualQ()
         q_deg = np.degrees(q_rad)
-        print(f"[OK]  Current joints (deg):")
+        print("[OK]  Current joints (deg):")
         for name, deg in zip(JOINT_NAMES, q_deg):
             print(f"        {name:15s}: {deg:+7.2f}°")
     except Exception as e:
@@ -65,7 +66,7 @@ def main():
     print("\n[3/4] Connecting RTDE control...")
     try:
         rtde_c = rtde_control.RTDEControlInterface(ip)
-        print(f"[OK]  RTDE control connected.")
+        print("[OK]  RTDE control connected.")
     except Exception as e:
         print(f"[FAIL] Cannot open control interface: {e}")
         print("       Ensure robot is not in remote-control lockout (check teach pendant).")

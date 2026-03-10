@@ -11,6 +11,7 @@ Cameras:
 """
 
 import sys
+
 import cv2
 import numpy as np
 import pyrealsense2 as rs
@@ -62,10 +63,24 @@ def main():
             img2 = np.asanyarray(f2.get_data())
             frame_count += 1
 
-            cv2.putText(img1, f"cam_1 exterior D415  frame {frame_count}",
-                        (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-            cv2.putText(img2, f"cam_2 wrist D405  frame {frame_count}",
-                        (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+            cv2.putText(
+                img1,
+                f"cam_1 exterior D415  frame {frame_count}",
+                (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (0, 255, 0),
+                2,
+            )
+            cv2.putText(
+                img2,
+                f"cam_2 wrist D405  frame {frame_count}",
+                (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (0, 255, 255),
+                2,
+            )
 
             combined = np.concatenate([img1, img2], axis=1)
             cv2.imshow("Camera Test  [cam_1 exterior | cam_2 wrist]  Q=quit", combined)

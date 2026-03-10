@@ -139,7 +139,7 @@ class DataBuffer:
             if not rclpy.ok():
                 raise RuntimeError("ROS shutdown while waiting for topics")
             if time.time() > deadline:
-                raise RuntimeError("Topics not received after 30 s — ensure the " "teleoperation nodes are running.")
+                raise RuntimeError("Topics not received after 30 s — ensure the teleoperation nodes are running.")
             time.sleep(0.1)
         node.get_logger().info("[Recorder] All topics ready.")
 
@@ -243,7 +243,7 @@ def save_episode_hdf5(episode: dict, path: str, prompt: str, task: str, hz: floa
         obs.create_dataset("qpos", data=qpos, dtype="float64", compression="gzip", compression_opts=4)
         root.create_dataset("action", data=action, dtype="float64", compression="gzip", compression_opts=4)
 
-    print(f"[Recorder] Saved {n_steps} steps → {path}  ({time.time()-t0:.2f} s)")
+    print(f"[Recorder] Saved {n_steps} steps → {path}  ({time.time() - t0:.2f} s)")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -347,7 +347,7 @@ def print_dt_diagnosis(step_timestamps: list[float], target_hz: float) -> None:
     print(
         f"[Recorder] Timing — target {target_hz:.0f} Hz | "
         f"actual {actual_hz:.2f} Hz | "
-        f"step dt {mean_dt*1000:.1f}±{std_dt*1000:.1f} ms | "
+        f"step dt {mean_dt * 1000:.1f}±{std_dt * 1000:.1f} ms | "
         f"max jitter {max_jitter:.1f} ms"
     )
 
@@ -463,7 +463,7 @@ def run(args) -> None:
                     path = os.path.join(dataset_dir, f"episode_{episode_idx}.hdf5")
                     save_episode_hdf5(episode_buf, path, prompt, args.task, hz)
                     print_dt_diagnosis(step_ts, hz)
-                    node.get_logger().info(f"[Recorder] Episode {episode_idx} saved ({n} steps). " "Ready for next.")
+                    node.get_logger().info(f"[Recorder] Episode {episode_idx} saved ({n} steps). Ready for next.")
                     episode_idx += 1
                 reset_buf()
 
@@ -494,7 +494,7 @@ def run(args) -> None:
                         if len(step_ts) >= max_steps:
                             rec_state = WAITING
                             path = os.path.join(dataset_dir, f"episode_{episode_idx}.hdf5")
-                            node.get_logger().info(f"[Recorder] Max steps ({max_steps}) reached " "— auto-saving …")
+                            node.get_logger().info(f"[Recorder] Max steps ({max_steps}) reached — auto-saving …")
                             save_episode_hdf5(episode_buf, path, prompt, args.task, hz)
                             print_dt_diagnosis(step_ts, hz)
                             episode_idx += 1
