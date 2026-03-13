@@ -203,7 +203,8 @@ class DataBuffer:
 
     def get_snapshot(self) -> dict | None:
         with self._lock:
-            if not self.is_ready():
+            # Inline check — do NOT call is_ready() here (it also acquires _lock → deadlock)
+            if any(x is None for x in [self._cam1_bgr, self._cam2_bgr, self._state, self._action]):
                 return None
             snap = {
                 "cam1_rgb": cv2.cvtColor(self._cam1_bgr, cv2.COLOR_BGR2RGB),
