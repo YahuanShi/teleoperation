@@ -55,7 +55,7 @@ GRIPPER_OPEN_THRESHOLD_MM = 5.0
 UR5_HOME_DEG = [45.0, -100.0, -120.0, 15.0, -270.0, 0.0]
 
 # Per-joint scale factors (sign correction) from master arm to UR5.
-JOINT_SCALE = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+JOINT_SCALE = [1.0, -0.5, -0.7, 0.8, -1.0, -0.1]
 
 # servoJ parameters
 SERVO_J_TIME = 0.016  # seconds per command step (≈ 60 Hz)
