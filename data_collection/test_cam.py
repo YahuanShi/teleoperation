@@ -16,7 +16,7 @@ import cv2
 import numpy as np
 import pyrealsense2 as rs
 
-SERIAL_1 = "105422060444"  # exterior camera (D415)
+SERIAL_1 = "105422061000"  # exterior camera (D415)
 SERIAL_2 = "352122273671"  # wrist camera (D405)
 
 

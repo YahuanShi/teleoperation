@@ -23,7 +23,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import Image
 
 # ── Camera serial numbers ──────────────
-SERIAL_1 = "105422060444"  # exterior camera (D415)
+SERIAL_1 = "105422061000"  # exterior camera (D415)
 SERIAL_2 = "352122273671"  # wrist camera (D405)
 
 PUBLISH_HZ = 30  # frames per second

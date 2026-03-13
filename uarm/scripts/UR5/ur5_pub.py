@@ -31,7 +31,7 @@ except ImportError as err:
 # ══════════════════════════════ Configuration ══════════════════════════════
 # Keep UR5_IP in sync with servo2ur5.py
 
-UR5_IP = "192.168.1.100"
+UR5_IP = "10.0.0.1"
 PUBLISH_HZ = 10  # /robot_state publish rate
 
 # ══════════════════════════════ State Publisher Node ══════════════════════════

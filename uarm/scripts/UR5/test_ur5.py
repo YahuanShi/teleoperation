@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-test_ur5.py — UR5 connectivity and basic motion test (no ROS required).
+test_ur5.py - UR5 connectivity and basic motion test (no ROS required).
 
 Steps:
-    1. Connect RTDE receive — read actual joint angles
-    2. Connect RTDE control — verify control interface
+    1. Connect RTDE receive - read actual joint angles
+    2. Connect RTDE control - verify control interface
     3. Move to home position (safe, slow)
     4. Print live joint angles for 5 seconds
 
 Usage:
     python3 test_ur5.py [ip]
-    python3 test_ur5.py 192.168.1.98   # default — match servo2ur5.py UR5_IP
+    python3 test_ur5.py 10.0.0.1       # default - match servo2ur5.py UR5_IP
 
 Press Ctrl+C to abort at any time.
 """
@@ -28,16 +28,16 @@ except ImportError:
     sys.exit(1)
 
 # Must match UR5_IP in servo2ur5.py AND ur5_pub.py
-UR5_IP = "192.168.1.100"
+UR5_IP = "10.0.0.1"
 
-# Safe home position — matches servo2ur5.py UR5_HOME_DEG
+# Safe home position - matches servo2ur5.py UR5_HOME_DEG
 HOME_DEG = [0.0, -90.0, 90.0, -90.0, -90.0, 0.0]
 JOINT_NAMES = ["shoulder_pan", "shoulder_lift", "elbow", "wrist_1", "wrist_2", "wrist_3"]
 
 
 def main():
     ip = sys.argv[1] if len(sys.argv) > 1 else UR5_IP
-    print(f"UR5 connectivity test  —  IP: {ip}")
+    print(f"UR5 connectivity test  -  IP: {ip}")
     print("=" * 48)
 
     # ── Step 1: RTDE receive ─────────────────────────────────────────────────
@@ -74,8 +74,14 @@ def main():
 
     # ── Step 4: Move to home ─────────────────────────────────────────────────
     print(f"\n[4/4] Moving to home position: {HOME_DEG} deg")
-    print("      (slow moveJ — ensure workspace is clear)")
-    input("      Press Enter to move, Ctrl+C to abort: ")
+    print("      (slow moveJ - ensure workspace is clear)")
+    
+    user_choice = input("      Press Enter to move, or type 'Q' (then Enter) to abort: ")
+    
+    if user_choice.strip().lower() == 'q':
+        print("\n[ABORT] Operation cancelled by user. Safely exiting...")
+        rtde_c.stopScript()
+        sys.exit(0)
 
     try:
         home_rad = np.radians(HOME_DEG).tolist()

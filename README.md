@@ -77,7 +77,7 @@ These values must be updated to match each machine's hardware before running:
 ### Camera serial numbers — `data_collection/cam_pub.py`
 
 ```python
-config_1.enable_device('106523022167')  # exterior camera
+config_1.enable_device('106523022523')  # exterior camera
 config_2.enable_device('254723071135')  # wrist camera
 ```
 
@@ -90,7 +90,7 @@ rs-enumerate-devices | grep Serial
 
 | Constant | Default | Description |
 |---|---|---|
-| `UR5_IP` | `192.168.1.100` | UR5 controller IP |
+| `UR5_IP` | `10.0.0.1` | UR5 controller IP |
 | `GRIPPER_PORT` | `/dev/ttyACM0` | CRG 30-050 USB port |
 | `UR5_HOME_DEG` | `[0,-90,90,-90,-90,0]` | UR5 home joint angles (deg) |
 | `JOINT_SCALE` | `[1,1,1,1,1,1]` | Sign correction per joint |
