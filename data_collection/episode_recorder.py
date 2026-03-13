@@ -428,18 +428,32 @@ def run(args) -> None:
             cv2.imshow(win, frame)
             key = cv2.waitKey(10) & 0xFF
 
-            # ── P — Set Task Prompt (any state) ───────────────────────────────
+            # ── P — Set Task Prompt (any state, in-window text entry) ────────
             if key == ord("p") or key == ord("P"):
-                cv2.destroyAllWindows()
-                print()
-                new_prompt = input("  [P] Enter task prompt for this session: ").strip()
-                if new_prompt:
-                    prompt = new_prompt
+                typing = ""
+                while True:
+                    c1_bgr, c2_bgr = buf.get_preview_frames()
+                    left = cv2.resize(c1_bgr, (PREVIEW_W, PREVIEW_H)) if c1_bgr is not None else np.zeros((PREVIEW_H, PREVIEW_W, 3), np.uint8)
+                    right = cv2.resize(c2_bgr, (PREVIEW_W, PREVIEW_H)) if c2_bgr is not None else np.zeros((PREVIEW_H, PREVIEW_W, 3), np.uint8)
+                    disp = f"> {typing}_"
+                    left  = _put_text(left,  ["SET PROMPT (Enter to confirm, Esc to cancel)", disp], color=(0, 220, 220))
+                    right = _put_text(right, ["SET PROMPT (Enter to confirm, Esc to cancel)", disp], color=(0, 220, 220))
+                    cv2.imshow(win, np.concatenate([left, right], axis=1))
+                    k = cv2.waitKey(50) & 0xFF
+                    if k == 13:   # Enter — confirm
+                        break
+                    elif k == 27: # Esc — cancel
+                        typing = ""
+                        break
+                    elif k in (8, 127):  # Backspace
+                        typing = typing[:-1]
+                    elif 32 <= k <= 126:
+                        typing += chr(k)
+                if typing:
+                    prompt = typing
                     node.get_logger().info(f'[Recorder] Prompt set: "{prompt}"')
                 else:
-                    node.get_logger().warning("[Recorder] Empty input — prompt unchanged.")
-                cv2.namedWindow(win, cv2.WINDOW_NORMAL)
-                cv2.resizeWindow(win, PREVIEW_W * 2, PREVIEW_H)
+                    node.get_logger().warning("[Recorder] Prompt entry cancelled — prompt unchanged.")
 
             # ── B — Begin Recording (WAITING only) ────────────────────────────
             elif (key == ord("b") or key == ord("B")) and rec_state == WAITING:
