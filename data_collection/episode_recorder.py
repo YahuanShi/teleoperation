@@ -43,6 +43,8 @@ import sys
 import threading
 import time
 
+import queue
+
 import cv2
 from cv_bridge import CvBridge
 import h5py
@@ -51,6 +53,22 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
 from std_msgs.msg import Float64MultiArray
+
+# Global keyboard listener (works regardless of which window has focus).
+# Falls back gracefully if pynput is unavailable.
+_key_queue: queue.SimpleQueue = queue.SimpleQueue()
+try:
+    from pynput import keyboard as _kb
+
+    def _on_press(key):
+        try:
+            _key_queue.put(key.char)
+        except AttributeError:
+            pass  # special key (shift, ctrl, …) — ignore
+
+    _kb.Listener(on_press=_on_press, daemon=True).start()
+except Exception:
+    pass  # pynput unavailable — cv2.waitKey only
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Configuration
@@ -426,11 +444,28 @@ def run(args) -> None:
             c1_bgr, c2_bgr = buf.get_preview_frames()
             frame = build_preview(c1_bgr, c2_bgr, rec_state, len(step_ts), buf.avg_hz(), prompt, episode_idx)
             cv2.imshow(win, frame)
-            key = cv2.waitKey(10) & 0xFF
+            cv_key = cv2.waitKey(10) & 0xFF
+
+            # Merge cv2 key (OpenCV window focus) with pynput global key.
+            key_char: str | None = None
+            if cv_key != 255:
+                key_char = chr(cv_key)
+            try:
+                key_char = _key_queue.get_nowait()
+            except queue.Empty:
+                pass
+
+            key = ord(key_char) if key_char else 255
 
             # ── P — Set Task Prompt (any state, in-window text entry) ────────
             if key == ord("p") or key == ord("P"):
                 typing = ""
+                # Drain any queued keys before starting entry
+                while not _key_queue.empty():
+                    try:
+                        _key_queue.get_nowait()
+                    except queue.Empty:
+                        break
                 while True:
                     c1_bgr, c2_bgr = buf.get_preview_frames()
                     left = cv2.resize(c1_bgr, (PREVIEW_W, PREVIEW_H)) if c1_bgr is not None else np.zeros((PREVIEW_H, PREVIEW_W, 3), np.uint8)
@@ -439,16 +474,32 @@ def run(args) -> None:
                     left  = _put_text(left,  ["SET PROMPT (Enter to confirm, Esc to cancel)", disp], color=(0, 220, 220))
                     right = _put_text(right, ["SET PROMPT (Enter to confirm, Esc to cancel)", disp], color=(0, 220, 220))
                     cv2.imshow(win, np.concatenate([left, right], axis=1))
-                    k = cv2.waitKey(50) & 0xFF
-                    if k == 13:   # Enter — confirm
+                    cv_k = cv2.waitKey(50) & 0xFF
+                    # Accept from pynput queue first, then cv2
+                    pk: str | None = None
+                    try:
+                        pk = _key_queue.get_nowait()
+                    except queue.Empty:
+                        pass
+                    if pk is not None:
+                        if pk == "\r" or pk == "\n":
+                            break
+                        elif pk == "\x1b":
+                            typing = ""
+                            break
+                        elif pk in ("\x08", "\x7f"):
+                            typing = typing[:-1]
+                        elif len(pk) == 1 and 32 <= ord(pk) <= 126:
+                            typing += pk
+                    elif cv_k == 13:   # Enter — confirm
                         break
-                    elif k == 27: # Esc — cancel
+                    elif cv_k == 27:   # Esc — cancel
                         typing = ""
                         break
-                    elif k in (8, 127):  # Backspace
+                    elif cv_k in (8, 127):  # Backspace
                         typing = typing[:-1]
-                    elif 32 <= k <= 126:
-                        typing += chr(k)
+                    elif 32 <= cv_k <= 126:
+                        typing += chr(cv_k)
                 if typing:
                     prompt = typing
                     node.get_logger().info(f'[Recorder] Prompt set: "{prompt}"')
