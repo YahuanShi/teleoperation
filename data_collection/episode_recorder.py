@@ -59,7 +59,7 @@ from std_msgs.msg import Float64MultiArray
 # Resolve openpi project root: this script lives at
 #   <openpi_root>/teleoperation/data_collection/episode_recorder.py
 _OPENPI_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
-_TODAY = datetime.datetime.now(tz=datetime.UTC).date().strftime("%Y%m%d")
+_TODAY = datetime.datetime.now(tz=datetime.timezone.utc).date().strftime("%Y%m%d")
 
 TASK_CONFIGS: dict = {
     "default": {

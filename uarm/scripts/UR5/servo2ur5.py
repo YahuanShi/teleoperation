@@ -52,7 +52,7 @@ GRIPPER_OPEN_THRESHOLD_MM = 5.0
 
 # UR5 home/initial joint position (degrees).
 # [shoulder_pan, shoulder_lift, elbow, wrist1, wrist2, wrist3]
-UR5_HOME_DEG = [0.0, -90.0, 90.0, -90.0, -90.0, 0.0]
+UR5_HOME_DEG = [45.0, -100.0, -120.0, 15.0, -270.0, 0.0]
 
 # Per-joint scale factors (sign correction) from master arm to UR5.
 JOINT_SCALE = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
@@ -202,20 +202,23 @@ class UR5TeleopNode(Node):
         super().__init__("ur5_teleop_node")
 
         # ── UR5 RTDE ─────────────────────────────────────────────
-        self.get_logger().info(f"[UR5Teleop] Connecting to UR5 at {UR5_IP}...")
+        self.get_logger().info(f"[UR5Teleop] (1/4) Connecting RTDE control to {UR5_IP}...")
         self.rtde_c = rtde_control.RTDEControlInterface(UR5_IP)
+        self.get_logger().info(f"[UR5Teleop] (2/4) Connecting RTDE receive to {UR5_IP}...")
         self.rtde_r = rtde_receive.RTDEReceiveInterface(UR5_IP)
-        self.get_logger().info("[UR5Teleop] UR5 RTDE connected.")
+        self.get_logger().info("[UR5Teleop] RTDE connected.")
 
         # ── Weiss CRG 30-050 ──────────────────────────────────────
-        self.get_logger().info(f"[UR5Teleop] Opening gripper on {GRIPPER_PORT}...")
+        self.get_logger().info(f"[UR5Teleop] (3/4) Initialising gripper on {GRIPPER_PORT} (takes ~5 s)...")
         self.gripper = WeissCRGGripper(GRIPPER_PORT, GRIPPER_BAUDRATE, logger=self.get_logger())
+        self.get_logger().info("[UR5Teleop] Gripper init done. Running home cycle (takes ~10 s)...")
         self.gripper.home()
+        self.get_logger().info("[UR5Teleop] Gripper homed.")
 
         # ── UR5 home position ─────────────────────────────────────
         self.home_rad = np.radians(UR5_HOME_DEG)
-        self.get_logger().info(f"[UR5Teleop] Moving UR5 to home: {UR5_HOME_DEG} deg")
-        self.rtde_c.moveJ(self.home_rad.tolist(), speed=0.5, acceleration=0.5)
+        self.get_logger().info(f"[UR5Teleop] (4/4) Moving UR5 to home: {UR5_HOME_DEG} deg (slow moveJ)...")
+        self.rtde_c.moveJ(self.home_rad.tolist(), speed=0.3, acceleration=0.3)
         self.get_logger().info("[UR5Teleop] UR5 at home position.")
 
         # ── shared command state ──────────────────────────────────
@@ -233,7 +236,10 @@ class UR5TeleopNode(Node):
         self._gripper_thread = threading.Thread(target=self._gripper_loop, daemon=True)
         self._gripper_thread.start()
 
-        self.get_logger().info(f"[UR5Teleop] Ready - streaming servoJ at {CONTROL_HZ} Hz, gripper at {GRIPPER_HZ} Hz.")
+        self.get_logger().info(
+            f"[UR5Teleop] *** READY *** — streaming servoJ at {CONTROL_HZ} Hz, "
+            f"gripper at {GRIPPER_HZ} Hz.  Move the master arm now."
+        )
 
     # ── angle mapping ─────────────────────────────────────────────────────────
 
@@ -297,11 +303,11 @@ class UR5TeleopNode(Node):
             try:
                 self.rtde_c.servoJ(
                     cmd_rad.tolist(),
-                    velocity=0,
-                    acceleration=0,
-                    time=SERVO_J_TIME,
-                    lookahead_time=SERVO_J_LOOKAHEAD,
-                    gain=SERVO_J_GAIN,
+                    0,
+                    0,
+                    SERVO_J_TIME,
+                    SERVO_J_LOOKAHEAD,
+                    SERVO_J_GAIN,
                 )
             except Exception as e:
                 self.get_logger().warning(f"[UR5Teleop] servoJ error: {e}")
