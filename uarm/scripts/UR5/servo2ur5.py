@@ -37,16 +37,16 @@ except ImportError as err:
 
 # ══════════════════════════════ Configuration ══════════════════════════════
 
-UR5_IP = "192.168.1.100"  # ← change to your UR5 controller IP
+UR5_IP = "10.0.0.1"  # ← change to your UR5 controller IP
 
 # CRG 30-050 USB serial port (Linux: /dev/ttyACM0, may vary)
 GRIPPER_PORT = "/dev/ttyACM0"
-GRIPPER_BAUDRATE = 115200
+GRIPPER_BAUDRATE = 9600
 
 # CRG 30-050: 30 mm total stroke, 28 N max force
 GRIPPER_MAX_MM = 30.0
 
-# Gripper opens/closes as a binary device (PDOUT=[07,00] open, PDOUT=[03,00] close).
+# Gripper opens/closes as a binary device (PDOUT=[02,00] open, PDOUT=[03,00] close).
 # Threshold: if commanded width > this value → open; otherwise → close.
 GRIPPER_OPEN_THRESHOLD_MM = 5.0
 
@@ -77,35 +77,33 @@ GRIPPER_HZ = 10  # gripper command rate
 
 class WeissCRGGripper:
     """
-    USB serial driver for Weiss Robotics CRG 30-050 (firmware 1.0.7).
+    USB serial driver for Weiss IEG76 / CRG gripper (DC-IOLink adapter).
 
-    Protocol: PDOUT/SETPARAM ASCII over USB CDC-ACM (DC-IOLINK).
-    The gripper continuously pushes @PDIN=[B0,B1,B2,B3],N messages.
-
+    Protocol ref: https://github.com/ipa320/weiss_gripper_ieg76
+    @PDIN=[B0,B1,B2,B3]: pos_mm = ((B0<<8)|B1)/100,  B3 = status flags
+        bit1 OPEN  |  bit2 CLOSED  |  bit3 HOLDING  |  bit4 FAULT
     Key commands:
-        PDOUT=[07,00]              – open fully (reference/home motion, ~1 s)
-        PDOUT=[03,00]              – close fully (stops at force limit / jaw contact)
-        PDOUT=[02,00]              – grip (close until force detected)
-        PDOUT=[00,00]              – stop / deactivate
-    @PDIN position encoding: jaw_gap_mm = (B0<<8|B1 - closed_pdin) / PDIN_PER_MM
-    Empirical constants (measured): PDIN_PER_MM ≈ 163.17, closed_pdin ≈ 150 (varies).
-
-    Motion model (binary open/close):
-        PDOUT=[07,00]   open  → PDIN ≈ 5055 (30 mm), motion takes ~1 s
-        PDOUT=[03,00]   close → PDIN ≈ 130–160 (0 mm), stops at force limit
-        PDOUT=[02,00]   grip  → closes until force detected (use for active gripping)
-    SETPARAM(96) does NOT give proportional position; gripper is binary open/close.
+        PDOUT=[07,00]  reference/home (closes then opens)
+        PDOUT=[02,00]  open
+        PDOUT=[03,00]  close
+        PDOUT=[00,00]  deactivate
+    Mandatory init sequence before any PDOUT:
+        ID? → FALLBACK(1) → MODE? → RESTART() → OPERATE() → PDOUT=[00,00]
     """
 
-    PDIN_PER_MM = 163.17  # PDIN encoder units per mm of jaw gap (measured)
+    FLAG_OPEN    = 1
+    FLAG_CLOSED  = 2
+    FLAG_HOLDING = 3
+    FLAG_FAULT   = 4
 
     def __init__(self, port: str = GRIPPER_PORT, baudrate: int = GRIPPER_BAUDRATE, logger=None):
         self._lock = threading.Lock()
         self._logger = logger
-        self._ser = serial.Serial(port=port, baudrate=baudrate, timeout=2.0)
+        self._ser = serial.Serial(port=port, baudrate=baudrate, timeout=0.2)
         self._position_mm = 0.0
-        self._closed_pdin = 150  # updated by home(); encoder count at fully closed
+        self._flags = 0
         self._log_info(f"Opened {port} @ {baudrate} baud")
+        self._initialise()
 
     def _log_info(self, msg: str):
         if self._logger:
@@ -115,116 +113,77 @@ class WeissCRGGripper:
         if self._logger:
             self._logger.warning(f"[WeissCRG] {msg}")
 
-    def _parse_pdin(self, line: str):
-        """Update cached position from @PDIN=[B0,B1,B2,B3],N push message."""
+    def _parse_pdin(self, line: str) -> bool:
         try:
-            data = line[7:].split("]", maxsplit=1)[0].split(",")
-            pdin_raw = (int(data[0], 16) << 8) | int(data[1], 16)
-            self._position_mm = max(0.0, (pdin_raw - self._closed_pdin) / self.PDIN_PER_MM)
+            inner = line[7:].split("]")[0]
+            parts = [int(x, 16) for x in inner.split(",")]
+            self._position_mm = ((parts[0] << 8) | parts[1]) / 100.0
+            self._flags = parts[3] if len(parts) >= 4 else 0
+            return True
         except Exception:
-            pass
+            return False
 
-    def _send(self, cmd: str) -> str:
-        """Send command; skip @PDIN push lines; return first command response."""
+    def _send(self, cmd: str, wait: float = 0.3) -> None:
         with self._lock:
             try:
                 self._ser.reset_input_buffer()
                 self._ser.write((cmd + "\n").encode("ascii"))
-                for _ in range(30):
-                    resp = self._ser.readline().decode("ascii", errors="ignore").strip()
-                    if resp.startswith("@PDIN"):
-                        self._parse_pdin(resp)
-                        continue
-                    return resp
-                return ""
             except Exception as e:
                 self._log_warn(f"Serial error on '{cmd}': {e}")
-                return ""
+        time.sleep(wait)
 
-    def get_width(self) -> float:
-        """Read a fresh @PDIN position message from the gripper."""
-        with self._lock:
-            try:
-                saved = self._ser.timeout
-                self._ser.timeout = 0.3
-                for _ in range(20):
-                    line = self._ser.readline().decode("ascii", errors="ignore").strip()
-                    if line.startswith("@PDIN"):
-                        self._parse_pdin(line)
-                        break
-                self._ser.timeout = saved
-            except Exception:
-                pass
-        return self._position_mm
-
-    def _wait_motion(self, timeout: float = 5.0) -> float:
-        """Read live @PDIN until motion completes. Returns final PDIN value."""
-        start_pdin = None
-        prev = None
-        stable = 0
-        moved = False
+    def _read_pdin(self, timeout: float = 1.0) -> bool:
         t0 = time.monotonic()
         with self._lock:
-            saved = self._ser.timeout
-            self._ser.timeout = 0.1
+            saved, self._ser.timeout = self._ser.timeout, 0.15
         try:
             while time.monotonic() - t0 < timeout:
                 with self._lock:
                     line = self._ser.readline().decode("ascii", errors="ignore").strip()
-                if not line.startswith("@PDIN"):
-                    continue
-                try:
-                    data = line[7:].split("]")[0].split(",")
-                    v = (int(data[0], 16) << 8) | int(data[1], 16)
-                except Exception:
-                    continue
-                if start_pdin is None:
-                    start_pdin = v
-                if not moved and abs(v - start_pdin) >= 200:
-                    moved = True
-                if moved:
-                    if prev is not None and abs(v - prev) <= 5:
-                        stable += 1
-                        if stable >= 15:
-                            self._position_mm = max(0.0, (v - self._closed_pdin) / self.PDIN_PER_MM)
-                            return v
-                    else:
-                        stable = 0
-                prev = v
+                if line.startswith("@PDIN=[") and self._parse_pdin(line):
+                    return True
         finally:
             with self._lock:
                 self._ser.timeout = saved
-        return prev or 0
+        return False
+
+    def _wait_flag(self, flag_bit: int, timeout: float = 6.0) -> bool:
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < timeout:
+            if self._read_pdin(0.5) and (self._flags & (1 << flag_bit)):
+                return True
+        return False
+
+    def _initialise(self) -> None:
+        """Mandatory startup sequence before any PDOUT command."""
+        for cmd in ["ID?", "ID?", "FALLBACK(1)", "MODE?", "RESTART()", "OPERATE()"]:
+            self._send(cmd, 0.5)
+        self._send("PDOUT=[00,00]", 0.5)
+        self._log_info("Initialisation complete.")
+
+    def get_width(self) -> float:
+        self._read_pdin(timeout=0.5)
+        return self._position_mm
 
     def home(self) -> bool:
-        """Close fully to calibrate closed_pdin, then open to ready position."""
-        self._log_info("Calibrating closed position (PDOUT=[03,00])...")
-        self._send("PDOUT=[00,00]")
-        time.sleep(0.1)
-        self._send("PDOUT=[03,00]")
-        closed = self._wait_motion(5.0)
-        self._closed_pdin = int(closed) if closed else 150
-        self._position_mm = 0.0
-        self._log_info(f"closed_pdin={self._closed_pdin}, opening gripper...")
-        self._send("PDOUT=[00,00]")
-        time.sleep(0.1)
-        self._send("PDOUT=[07,00]")
-        self._wait_motion(5.0)
-        self._log_info("Homing done, gripper open and ready.")
+        """Reference cycle: closes then opens fully."""
+        self._log_info("Homing (reference cycle)...")
+        self._send("PDOUT=[07,00]", 0.2)
+        self._wait_flag(self.FLAG_OPEN, timeout=10.0)
+        self._log_info("Homing done, gripper open.")
         return True
 
     def move_to_pos(self, width_mm: float) -> bool:
         """Open (width_mm > threshold) or close the gripper."""
         if width_mm > GRIPPER_OPEN_THRESHOLD_MM:
-            self._send("PDOUT=[00,00]")  # release hold before opening
-            self._send("PDOUT=[07,00]")
+            self._send("PDOUT=[02,00]", 0.2)   # open
         else:
-            self._send("PDOUT=[00,00]")  # release reference-hold before closing
-            self._send("PDOUT=[03,00]")
+            self._send("PDOUT=[03,00]", 0.2)   # close
         return True
 
     def close(self):
-        self._send("PDOUT=[00,00]")
+        self._send("PDOUT=[00,00]", 0.3)
+        self._send("FALLBACK(1)", 0.3)
         if self._ser and self._ser.is_open:
             self._ser.close()
             self._log_info("Serial port closed")
@@ -274,7 +233,7 @@ class UR5TeleopNode(Node):
         self._gripper_thread = threading.Thread(target=self._gripper_loop, daemon=True)
         self._gripper_thread.start()
 
-        self.get_logger().info(f"[UR5Teleop] Ready — streaming servoJ at {CONTROL_HZ} Hz, gripper at {GRIPPER_HZ} Hz.")
+        self.get_logger().info(f"[UR5Teleop] Ready - streaming servoJ at {CONTROL_HZ} Hz, gripper at {GRIPPER_HZ} Hz.")
 
     # ── angle mapping ─────────────────────────────────────────────────────────
 
