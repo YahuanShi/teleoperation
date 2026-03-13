@@ -300,11 +300,36 @@ def delete_last_episode(dataset_dir: str, episode_idx: int) -> int:
 
 
 def _put_text(img: np.ndarray, lines: list[str], color: tuple = (255, 255, 255)) -> np.ndarray:
+    """Draw text lines over a dark translucent banner for contrast on any background."""
     out = img.copy()
+    font      = cv2.FONT_HERSHEY_DUPLEX
+    scale     = 0.52
+    thickness = 1
+    pad_x, pad_y = 10, 6
+    line_h    = 24
+
+    max_w = max(cv2.getTextSize(l, font, scale, thickness)[0][0] for l in lines)
+    banner_h = len(lines) * line_h + pad_y * 2
+    banner_w = max_w + pad_x * 2
+
+    overlay = out.copy()
+    cv2.rectangle(overlay, (0, 0), (banner_w, banner_h), (15, 15, 15), -1)
+    cv2.addWeighted(overlay, 0.65, out, 0.35, 0, out)
+
     for i, line in enumerate(lines):
-        y = 36 + 30 * i
-        cv2.putText(out, line, (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 3, cv2.LINE_AA)
-        cv2.putText(out, line, (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2, cv2.LINE_AA)
+        y = pad_y + (i + 1) * line_h - 3
+        cv2.putText(out, line, (pad_x + 1, y + 1), font, scale, (0, 0, 0), thickness + 1, cv2.LINE_AA)
+        cv2.putText(out, line, (pad_x,     y),     font, scale, color,     thickness,     cv2.LINE_AA)
+    return out
+
+
+def _draw_rec_dot(img: np.ndarray, blink: bool) -> np.ndarray:
+    """Draw a solid REC indicator circle in the top-right corner."""
+    out = img.copy()
+    cx, cy, r = PREVIEW_W - 18, 18, 8
+    if blink:
+        cv2.circle(out, (cx, cy), r + 1, (0, 0, 0), -1)
+        cv2.circle(out, (cx, cy), r,     (60, 60, 255), -1)
     return out
 
 
@@ -314,38 +339,53 @@ def build_preview(cam1_bgr, cam2_bgr, rec_state, n_steps, avg_hz, prompt, episod
             return np.zeros((PREVIEW_H, PREVIEW_W, 3), dtype=np.uint8)
         return cv2.resize(img, (PREVIEW_W, PREVIEW_H))
 
-    left = prep(cam1_bgr)
+    left  = prep(cam1_bgr)
     right = prep(cam2_bgr)
 
     prompt_disp = (
-        f'"{prompt[:32]}\u2026"' if len(prompt) > 32 else (f'"{prompt}"' if prompt else "[ No prompt — press P ]")
+        f'"{prompt[:40]}..."' if len(prompt) > 40 else (f'"{prompt}"' if prompt else "[ press P to set prompt ]")
     )
     blink = int(time.time() * 2) % 2 == 0
 
+    WHITE  = (235, 235, 235)
+    YELLOW = (0,   210, 255)
+    GREY   = (150, 150, 150)
+    RED    = (80,  80,  255)
+    CYAN   = (220, 210, 0  )
+
     if rec_state == "WAITING":
-        left = _put_text(
-            left,
+        # Left: clean view with thin border only
+        cv2.rectangle(left, (0, 0), (PREVIEW_W - 1, PREVIEW_H - 1), (80, 80, 80), 2)
+        # Right: all status info
+        right = _put_text(
+            right,
             [
-                f"Episode {episode_idx}  |  WAITING",
+                f"Ep {episode_idx}   WAITING",
                 prompt_disp,
-                "P: set prompt    B: begin",
+                "P: set prompt",
+                "B: begin recording",
                 "D: delete last   Q: quit",
             ],
-            color=(200, 200, 200),
+            color=WHITE,
         )
-        prompt_color = (0, 220, 220) if prompt else (0, 100, 220)
-        right = _put_text(right, [prompt_disp], color=prompt_color)
 
     elif rec_state == "RECORDING":
-        dot = "● REC" if blink else "  REC"
-        left = _put_text(
-            left,
-            [f"Episode {episode_idx}  |  {dot}", f"{n_steps} steps   {avg_hz:.1f} Hz", prompt_disp, "S: stop & save"],
-            color=(0, 60, 230),
+        # Left: clean view with red border + blinking dot only
+        cv2.rectangle(left, (0, 0), (PREVIEW_W - 1, PREVIEW_H - 1), (60, 60, 220), 4)
+        left = _draw_rec_dot(left, blink)
+        # Right: recording status
+        right = _put_text(
+            right,
+            [
+                f"Ep {episode_idx}   REC",
+                f"{n_steps} steps   {avg_hz:.1f} Hz",
+                prompt_disp,
+                "S: stop & save",
+            ],
+            color=RED,
         )
-        right = _put_text(right, [prompt_disp], color=(0, 200, 230))
-        cv2.rectangle(left, (0, 0), (PREVIEW_W - 1, PREVIEW_H - 1), (0, 0, 210), 5)
-        cv2.rectangle(right, (0, 0), (PREVIEW_W - 1, PREVIEW_H - 1), (0, 0, 210), 5)
+        cv2.rectangle(right, (0, 0), (PREVIEW_W - 1, PREVIEW_H - 1), (60, 60, 220), 4)
+        right = _draw_rec_dot(right, blink)
 
     return np.concatenate([left, right], axis=1)
 
