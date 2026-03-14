@@ -58,25 +58,57 @@ class CameraNode(Node):
 
     # ── pipeline helpers ─────────────────────────────────────────────────────
 
-    def _start_pipeline(self, serial: str) -> rs.pipeline:
-        pipeline = rs.pipeline()
-        cfg = rs.config()
-        cfg.enable_device(serial)
-        cfg.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
-        pipeline.start(cfg)
-        self.get_logger().info(f"[CamPub] Pipeline started for serial {serial}")
-        return pipeline
+    def _start_pipeline(self, serial: str) -> rs.pipeline | None:
+        """Try to start a RealSense pipeline; return None on failure."""
+        # Format fallback list: try BGR8 first, then RGB8, then Y8 (D405 IR)
+        attempts = [
+            (640, 480, rs.format.bgr8, 30),
+            (848, 480, rs.format.bgr8, 30),
+            (640, 480, rs.format.rgb8, 30),
+        ]
+        for w, h, fmt, fps in attempts:
+            try:
+                pipeline = rs.pipeline()
+                cfg = rs.config()
+                cfg.enable_device(serial)
+                cfg.enable_stream(rs.stream.color, w, h, fmt, fps)
+                pipeline.start(cfg)
+                self.get_logger().info(
+                    f"[CamPub] Pipeline started for serial {serial} ({w}x{h} {fmt} {fps}fps)"
+                )
+                return pipeline
+            except Exception as e:
+                self.get_logger().warning(
+                    f"[CamPub] serial {serial} failed with ({w}x{h} {fmt}): {e}"
+                )
+        self.get_logger().error(
+            f"[CamPub] All attempts failed for serial {serial} — publishing black frames."
+        )
+        return None
 
     # ── per-camera background capture threads ────────────────────────────────
 
-    def _capture_loop(self, pipeline: rs.pipeline, cam_id: int):
+    _BLANK = np.zeros((480, 640, 3), dtype=np.uint8)
+
+    def _capture_loop(self, pipeline: rs.pipeline | None, cam_id: int):
         """Continuously grab frames from one camera into the shared buffer."""
+        if pipeline is None:
+            # Publish a black frame immediately so the recorder doesn't stall.
+            with self._lock:
+                if cam_id == 1:
+                    self._frame1 = self._BLANK.copy()
+                else:
+                    self._frame2 = self._BLANK.copy()
+            return  # thread exits; blank frame stays in buffer
         while rclpy.ok():
             try:
                 frames = pipeline.wait_for_frames(timeout_ms=2000)
                 color = frames.get_color_frame()
                 if color:
                     frame = np.asanyarray(color.get_data())
+                    # Convert RGB8 → BGR8 if needed (OpenCV expects BGR)
+                    if frame.shape[2] == 3 and frame.dtype == np.uint8:
+                        pass  # already correct layout from asanyarray
                     with self._lock:
                         if cam_id == 1:
                             self._frame1 = frame
@@ -103,10 +135,10 @@ class CameraNode(Node):
 
     def destroy_node(self):
         """Stop camera pipelines before the node is torn down."""
-        with contextlib.suppress(Exception):
-            self._pipe1.stop()
-        with contextlib.suppress(Exception):
-            self._pipe2.stop()
+        for pipe in (self._pipe1, self._pipe2):
+            if pipe is not None:
+                with contextlib.suppress(Exception):
+                    pipe.stop()
         cv2.destroyAllWindows()
         super().destroy_node()
 

@@ -48,26 +48,37 @@ GRIPPER_MAX_MM = 30.0
 
 # Gripper opens/closes as a binary device (PDOUT=[02,00] open, PDOUT=[03,00] close).
 # Threshold: if commanded width > this value → open; otherwise → close.
-GRIPPER_OPEN_THRESHOLD_MM = 5.0
+GRIPPER_OPEN_THRESHOLD_MM = 15.0  # 50% of GRIPPER_MAX_MM; tune based on master arm range
 
 # UR5 home/initial joint position (degrees).
 # [shoulder_pan, shoulder_lift, elbow, wrist1, wrist2, wrist3]
 UR5_HOME_DEG = [45.0, -100.0, -120.0, 15.0, -270.0, 0.0]
 
-# Per-joint scale factors (sign correction) from master arm to UR5.
-JOINT_SCALE = [1.0, -0.5, -0.7, 0.8, -1.0, -0.1]
+# Reorder master-arm servo indices to UR5 joint indices.
+# JOINT_MAP[i] = which servo channel drives UR5 joint i.
+# Swap master motor 4 → UR5 joint 5, master motor 5 → UR5 joint 4.
+JOINT_MAP = [0, 1, 2, 3, 5, 4]
 
-# servoJ parameters
-SERVO_J_TIME = 0.016  # seconds per command step (≈ 60 Hz)
-SERVO_J_LOOKAHEAD = 0.08
-SERVO_J_GAIN = 300
+# Per-joint scale factors (sign correction) applied after reordering.
+JOINT_SCALE = [0.4, -0.3, -0.5, 0.8, 0.8, 0.3]
 
-# UR5 joint velocity limit (rad/s) for safety clipping (~57 deg/s)
-MAX_JOINT_VEL_RAD = 1.0
+# servoJ parameters — balance between responsiveness and smoothness
+# lookahead_time: 0.03–0.2 s  — higher = smoother motion, more lag
+# gain:           100–2000    — lower = softer/less jerky, less tight tracking
+SERVO_J_TIME = 0.016       # s per step (must match 1/CONTROL_HZ)
+SERVO_J_LOOKAHEAD = 0.15   # s look-ahead (raised from 0.06 → smoother interpolation)
+SERVO_J_GAIN = 200          # stiffness (lowered from 500 → less snapping)
 
-# Master-arm gripper channel (index 6): degree range → fully closed / open.
-GRIPPER_SERVO_CLOSED_DEG = -5.0
-GRIPPER_SERVO_OPEN_DEG = 35.0
+# UR5 joint velocity limit (rad/s) — caps how fast the arm can move per step
+MAX_JOINT_VEL_RAD = 0.4    # rad/s (~23 deg/s); lowered from 0.8 for smoother motion
+
+
+# Master-arm gripper channel (index 6): servo[6] is the angle OFFSET from home
+# (zero-referenced, same convention as joints 0-5).
+# Move servo past GRIPPER_OPEN_DEG → open;  past GRIPPER_CLOSE_DEG → close.
+# Dead zone in between keeps current state.  Tune these to match your master arm travel.
+GRIPPER_OPEN_DEG  =  -7.0   # deg offset from home → open  (tune down if hard to trigger)
+GRIPPER_CLOSE_DEG = -17.0  # deg offset from home → close (large negative = intentional only)
 
 CONTROL_HZ = 60  # main joint control loop rate
 GRIPPER_HZ = 10  # gripper command rate
@@ -224,7 +235,7 @@ class UR5TeleopNode(Node):
         # ── shared command state ──────────────────────────────────
         self._lock = threading.Lock()
         self._cmd_joints_rad = self.home_rad.copy()
-        self._cmd_gripper_mm = 0.0
+        self._cmd_gripper_mm = GRIPPER_MAX_MM  # gripper starts open after home()
         self._last_cmd_rad = self.home_rad.copy()
         self._servo_warned = False
 
@@ -244,12 +255,18 @@ class UR5TeleopNode(Node):
     # ── angle mapping ─────────────────────────────────────────────────────────
 
     def _map_joints(self, servo_deg: np.ndarray) -> np.ndarray:
-        delta_rad = np.deg2rad(servo_deg) * np.array(JOINT_SCALE)
+        reordered = servo_deg[JOINT_MAP]
+        delta_rad = np.deg2rad(reordered) * np.array(JOINT_SCALE)
         return self.home_rad + delta_rad
 
-    def _map_gripper(self, servo_deg: float) -> float:
-        norm = (servo_deg - GRIPPER_SERVO_CLOSED_DEG) / max(1e-6, GRIPPER_SERVO_OPEN_DEG - GRIPPER_SERVO_CLOSED_DEG)
-        return float(np.clip(norm, 0.0, 1.0)) * GRIPPER_MAX_MM
+    def _map_gripper(self, servo_deg: float) -> float | None:
+        """Absolute-offset gripper: servo[6] is zero-referenced (offset from home).
+        Returns GRIPPER_MAX_MM (open), 0.0 (close), or None (dead zone → keep state)."""
+        if servo_deg > GRIPPER_OPEN_DEG:
+            return GRIPPER_MAX_MM
+        elif servo_deg < GRIPPER_CLOSE_DEG:
+            return 0.0
+        return None  # dead zone — keep current state
 
     def _limit_joint_vel(self, target: np.ndarray, dt: float) -> np.ndarray:
         max_step = MAX_JOINT_VEL_RAD * dt
@@ -269,13 +286,16 @@ class UR5TeleopNode(Node):
         gripper_mm = self._map_gripper(float(data[6]))
         with self._lock:
             self._cmd_joints_rad = joints_rad
-            self._cmd_gripper_mm = gripper_mm
+            if gripper_mm is not None:   # None = dead zone, keep current
+                self._cmd_gripper_mm = gripper_mm
 
     # ── gripper thread ────────────────────────────────────────────────────────
 
     def _gripper_loop(self):
         dt = 1.0 / GRIPPER_HZ
-        last_open = True  # gripper starts open after home()
+        # Explicitly open on startup.
+        self.gripper.move_to_pos(GRIPPER_MAX_MM)
+        last_open = True
         while rclpy.ok():
             with self._lock:
                 target_mm = self._cmd_gripper_mm

@@ -52,7 +52,7 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
-from std_msgs.msg import Float64MultiArray
+from std_msgs.msg import Bool, Float64MultiArray
 
 # Global keyboard listener (works regardless of which window has focus).
 # Falls back gracefully if pynput is unavailable.
@@ -93,7 +93,9 @@ TASK_CONFIGS: dict = {
 }
 
 IMAGE_H, IMAGE_W = 224, 224
-PREVIEW_H, PREVIEW_W = 360, 480
+PREVIEW_H, PREVIEW_W = 480, 640   # per-camera frame size
+HEADER_H  = 28                    # camera label strip above images
+STATUS_H  = 88                    # info panel below images
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Image preprocessing
@@ -299,95 +301,93 @@ def delete_last_episode(dataset_dir: str, episode_idx: int) -> int:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def _put_text(img: np.ndarray, lines: list[str], color: tuple = (255, 255, 255)) -> np.ndarray:
-    """Draw text lines over a dark translucent banner for contrast on any background."""
-    out = img.copy()
-    font      = cv2.FONT_HERSHEY_DUPLEX
-    scale     = 0.52
-    thickness = 1
-    pad_x, pad_y = 10, 6
-    line_h    = 24
+# ── UI palette (BGR) ─────────────────────────────────────────────────────────
+_F   = cv2.FONT_HERSHEY_DUPLEX
+_FSM = 0.50   # small
+_FMD = 0.65   # medium
+_FLG = 0.80   # large
+_TH  = 1
+_STR = 2
 
-    max_w = max(cv2.getTextSize(l, font, scale, thickness)[0][0] for l in lines)
-    banner_h = len(lines) * line_h + pad_y * 2
-    banner_w = max_w + pad_x * 2
-
-    overlay = out.copy()
-    cv2.rectangle(overlay, (0, 0), (banner_w, banner_h), (15, 15, 15), -1)
-    cv2.addWeighted(overlay, 0.65, out, 0.35, 0, out)
-
-    for i, line in enumerate(lines):
-        y = pad_y + (i + 1) * line_h - 3
-        cv2.putText(out, line, (pad_x + 1, y + 1), font, scale, (0, 0, 0), thickness + 1, cv2.LINE_AA)
-        cv2.putText(out, line, (pad_x,     y),     font, scale, color,     thickness,     cv2.LINE_AA)
-    return out
+_BG_HEADER  = (42,  42,  42)
+_BG_STATUS  = (22,  22,  22)
+_BG_CAM     = (18,  18,  18)
+_DIV        = (58,  58,  58)
+_WHITE      = (230, 230, 230)
+_GRAY       = (150, 150, 150)
+_HINT       = (85,  85,  85)
+_ACCENT_W   = (80,  190, 100)   # green  — WAITING
+_ACCENT_R   = (55,  55,  210)   # red    — RECORDING
+_PROMPT_COL = (80,  185, 220)   # warm cyan
 
 
-def _draw_rec_dot(img: np.ndarray, blink: bool) -> np.ndarray:
-    """Draw a solid REC indicator circle in the top-right corner."""
-    out = img.copy()
-    cx, cy, r = PREVIEW_W - 18, 18, 8
-    if blink:
-        cv2.circle(out, (cx, cy), r + 1, (0, 0, 0), -1)
-        cv2.circle(out, (cx, cy), r,     (60, 60, 255), -1)
-    return out
+def _txt(img, text, x, y, fs, color, th=_TH):
+    cv2.putText(img, text, (x, y), _F, fs, (0, 0, 0), th + 2, cv2.LINE_AA)
+    cv2.putText(img, text, (x, y), _F, fs, color,    th,     cv2.LINE_AA)
 
 
 def build_preview(cam1_bgr, cam2_bgr, rec_state, n_steps, avg_hz, prompt, episode_idx) -> np.ndarray:
+    W, H = PREVIEW_W, PREVIEW_H
+    TW   = W * 2   # total width
+
+    recording = rec_state == RECORDING
+    accent    = _ACCENT_R if recording else _ACCENT_W
+    blink     = int(time.time() * 2) % 2 == 0
+    prompt_s  = (prompt[:52] + "...") if len(prompt) > 52 else (prompt or "—  press  P  to set")
+
+    # ── 1. Camera frames (clean, no text) ────────────────────────────────────
     def prep(img):
         if img is None:
-            return np.zeros((PREVIEW_H, PREVIEW_W, 3), dtype=np.uint8)
-        return cv2.resize(img, (PREVIEW_W, PREVIEW_H))
+            f = np.full((H, W, 3), _BG_CAM[0], dtype=np.uint8)
+            _txt(f, "NO SIGNAL", W // 2 - 62, H // 2 + 6, _FMD, _HINT)
+            return f
+        f = cv2.resize(img, (W, H))
+        if recording:
+            cv2.rectangle(f, (0, 0), (W - 1, H - 1), _ACCENT_R, 2)
+        return f
 
-    left  = prep(cam1_bgr)
-    right = prep(cam2_bgr)
+    cam1 = prep(cam1_bgr)
+    cam2 = prep(cam2_bgr)
+    cameras = np.concatenate([cam1, cam2], axis=1)
+    cv2.line(cameras, (W, 0), (W, H), _DIV, 1)   # center divider
 
-    prompt_disp = (
-        f'"{prompt[:40]}..."' if len(prompt) > 40 else (f'"{prompt}"' if prompt else "[ press P to set prompt ]")
-    )
-    blink = int(time.time() * 2) % 2 == 0
+    # ── 2. Header strip (camera labels) ──────────────────────────────────────
+    hdr = np.full((HEADER_H, TW, 3), _BG_HEADER[0], dtype=np.uint8)
+    cv2.line(hdr, (0, HEADER_H - 1), (TW, HEADER_H - 1), _DIV, 1)
+    cv2.line(hdr, (W, 0), (W, HEADER_H), _DIV, 1)
+    _txt(hdr, "EXTERIOR  CAM 1", 12, 19, _FSM, _GRAY)
+    _txt(hdr, "WRIST  CAM 2",   W + 12, 19, _FSM, _GRAY)
 
-    WHITE  = (235, 235, 235)
-    YELLOW = (0,   210, 255)
-    GREY   = (150, 150, 150)
-    RED    = (80,  80,  255)
-    CYAN   = (220, 210, 0  )
+    # ── 3. Status panel ───────────────────────────────────────────────────────
+    pan = np.full((STATUS_H, TW, 3), _BG_STATUS[0], dtype=np.uint8)
+    cv2.line(pan, (0, 0), (TW, 0), _DIV, 1)          # top border
+    cv2.rectangle(pan, (0, 0), (4, STATUS_H), accent, -1)   # accent stripe
 
-    if rec_state == "WAITING":
-        # Left: clean view with thin border only
-        cv2.rectangle(left, (0, 0), (PREVIEW_W - 1, PREVIEW_H - 1), (80, 80, 80), 2)
-        # Right: all status info
-        right = _put_text(
-            right,
-            [
-                f"Ep {episode_idx}   WAITING",
-                prompt_disp,
-                "P: set prompt",
-                "B: begin recording",
-                "D: delete last   Q: quit",
-            ],
-            color=WHITE,
-        )
+    if recording:
+        # Row 1: REC badge + episode/steps/hz
+        dot_x, dot_y = 22, 26
+        if blink:
+            cv2.circle(pan, (dot_x, dot_y), 8, _ACCENT_R, -1)
+            cv2.circle(pan, (dot_x, dot_y), 8, (255, 255, 255), 1)
+        _txt(pan, "REC", dot_x + 15, dot_y + 5, _FMD, _ACCENT_R, _STR)
+        _txt(pan, f"Ep {episode_idx}    {n_steps} steps    {avg_hz:.1f} Hz",
+             dot_x + 65, dot_y + 5, _FMD, _WHITE)
+        # Row 2: prompt
+        _txt(pan, f"Prompt:  {prompt_s}", 12, 56, _FSM, _PROMPT_COL)
+        # Row 3: hint
+        _txt(pan, "S : stop & save", 12, 78, _FSM, _HINT)
+    else:
+        # Row 1: state badge + episode
+        _txt(pan, "WAITING", 12, 28, _FLG, _ACCENT_W, _STR)
+        _txt(pan, f"Ep {episode_idx}    {n_steps} steps", 130, 28, _FMD, _WHITE)
+        # Row 2: prompt
+        p_col = _PROMPT_COL if prompt else _HINT
+        _txt(pan, f"Prompt:  {prompt_s}", 12, 56, _FSM, p_col)
+        # Row 3: hints
+        _txt(pan, "P: prompt    B: begin recording    D: delete last    Q: quit",
+             12, 78, _FSM, _HINT)
 
-    elif rec_state == "RECORDING":
-        # Left: clean view with red border + blinking dot only
-        cv2.rectangle(left, (0, 0), (PREVIEW_W - 1, PREVIEW_H - 1), (60, 60, 220), 4)
-        left = _draw_rec_dot(left, blink)
-        # Right: recording status
-        right = _put_text(
-            right,
-            [
-                f"Ep {episode_idx}   REC",
-                f"{n_steps} steps   {avg_hz:.1f} Hz",
-                prompt_disp,
-                "S: stop & save",
-            ],
-            color=RED,
-        )
-        cv2.rectangle(right, (0, 0), (PREVIEW_W - 1, PREVIEW_H - 1), (60, 60, 220), 4)
-        right = _draw_rec_dot(right, blink)
-
-    return np.concatenate([left, right], axis=1)
+    return np.vstack([hdr, cameras, pan])
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -458,11 +458,16 @@ def run(args) -> None:
     spin_thread.start()
 
     buf = DataBuffer(node)
+    rec_pub = node.create_publisher(Bool, "/is_recording", 1)
+
+    def _pub_rec(state: bool):
+        rec_pub.publish(Bool(data=state))
 
     # ── OpenCV preview window ─────────────────────────────────────────────────
     win = "Recorder  [exterior | wrist]"
     cv2.namedWindow(win, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(win, PREVIEW_W * 2, PREVIEW_H)
+    cv2.resizeWindow(win, PREVIEW_W * 2, HEADER_H + PREVIEW_H + STATUS_H)
+    cv2.moveWindow(win, 30, 30)   # top-left of monitor (adjust if needed)
 
     # ── state + buffers ───────────────────────────────────────────────────────
     rec_state: str = WAITING
@@ -509,12 +514,17 @@ def run(args) -> None:
                         break
                 while True:
                     c1_bgr, c2_bgr = buf.get_preview_frames()
-                    left = cv2.resize(c1_bgr, (PREVIEW_W, PREVIEW_H)) if c1_bgr is not None else np.zeros((PREVIEW_H, PREVIEW_W, 3), np.uint8)
-                    right = cv2.resize(c2_bgr, (PREVIEW_W, PREVIEW_H)) if c2_bgr is not None else np.zeros((PREVIEW_H, PREVIEW_W, 3), np.uint8)
-                    disp = f"> {typing}_"
-                    left  = _put_text(left,  ["SET PROMPT (Enter to confirm, Esc to cancel)", disp], color=(0, 220, 220))
-                    right = _put_text(right, ["SET PROMPT (Enter to confirm, Esc to cancel)", disp], color=(0, 220, 220))
-                    cv2.imshow(win, np.concatenate([left, right], axis=1))
+                    # Build a full-layout frame with the prompt panel below
+                    _frame = build_preview(c1_bgr, c2_bgr, WAITING, len(step_ts), buf.avg_hz(), prompt, episode_idx)
+                    # Overwrite the status panel with the typing prompt
+                    pan_y = HEADER_H + PREVIEW_H
+                    _frame[pan_y:, :] = _BG_STATUS[0]
+                    cv2.line(_frame, (0, pan_y), (PREVIEW_W * 2, pan_y), _DIV, 1)
+                    cv2.rectangle(_frame, (0, pan_y), (4, pan_y + STATUS_H), _PROMPT_COL, -1)
+                    _txt(_frame, "SET PROMPT", 12, pan_y + 26, _FLG, _PROMPT_COL, _STR)
+                    _txt(_frame, f"> {typing}_", 12, pan_y + 56, _FMD, _WHITE)
+                    _txt(_frame, "Enter: confirm    Esc: cancel    Backspace: delete", 12, pan_y + 78, _FSM, _HINT)
+                    cv2.imshow(win, _frame)
                     cv_k = cv2.waitKey(50) & 0xFF
                     # Accept from pynput queue first, then cv2
                     pk: str | None = None
@@ -556,12 +566,14 @@ def run(args) -> None:
                     reset_buf()
                     last_step_t = time.time()
                     rec_state = RECORDING
+                    _pub_rec(True)
                     node.get_logger().info(f"[Recorder] *** BEGIN episode {episode_idx} ***")
                     node.get_logger().info(f'[Recorder] Prompt: "{prompt}"')
 
             # ── S — Stop & Save (RECORDING only) ─────────────────────────────
             elif (key == ord("s") or key == ord("S")) and rec_state == RECORDING:
                 rec_state = WAITING
+                _pub_rec(False)
                 n = len(step_ts)
                 if n == 0:
                     node.get_logger().warning("[Recorder] No data recorded — nothing saved.")
@@ -581,7 +593,11 @@ def run(args) -> None:
             elif key == ord("q") or key == ord("Q"):
                 if rec_state == RECORDING:
                     node.get_logger().warning("[Recorder] Quit while recording — data NOT saved.")
-                node.get_logger().info("[Recorder] Quitting.")
+                node.get_logger().info("[Recorder] Quitting — shutting down all pipeline nodes.")
+                try:
+                    os.killpg(os.getpgrp(), signal.SIGTERM)
+                except Exception:
+                    pass
                 break
 
             # ── recording step (rate-limited to hz) ───────────────────────────
@@ -639,6 +655,7 @@ def main():
         sys.exit(0)
 
     signal.signal(signal.SIGINT, _sigint)
+    signal.signal(signal.SIGTERM, _sigint)
 
     try:
         run(args)

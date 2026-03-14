@@ -7,6 +7,14 @@
 #   ur5_pub.py                →  /robot_state
 #   cam_pub.py                →  /cam_1, /cam_2
 #   episode_recorder.py  (subscribes to /robot_action, /robot_state, /cam_*)
+#   joint_viz.py         (subscribes to /servo_angles, /robot_state, /is_recording)
+#
+# Window layout (1920×1080 monitor):
+#   ┌─────────────────────────────────────────────────────────┐
+#   │  Recorder  [exterior | wrist]   (30, 30)  1280 × 596   │
+#   ├─────────────────────────────────────────────────────────┤
+#   │  Joint Trajectories             (30,660)  1300 × 380   │
+#   └─────────────────────────────────────────────────────────┘
 #
 # Usage:
 #   bash run_ur5_nodes.sh
@@ -58,10 +66,15 @@ python3 "$DATA_COLLECTION/episode_recorder.py" &
 PID_REC=$!
 echo "[INFO] episode_recorder.py  → PID $PID_REC"
 
+# ── 6. Joint trajectory visualizer ──────────────────────────────────────────
+python3 "$SCRIPT_DIR/joint_viz.py" &
+PID_VIZ=$!
+echo "[INFO] joint_viz.py  → PID $PID_VIZ"
+
 # ── Cleanup on Ctrl+C ────────────────────────────────────────────────────────
 trap "echo '';
       echo '[INFO] Ctrl+C — shutting down all nodes...';
-      kill $PID_CAM $PID_STATE $PID_SERVO $PID_TELEOP $PID_REC 2>/dev/null;
+      kill $PID_CAM $PID_STATE $PID_SERVO $PID_TELEOP $PID_REC $PID_VIZ 2>/dev/null;
       exit 0" SIGINT SIGTERM
 
 echo ""
