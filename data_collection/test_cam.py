@@ -6,7 +6,7 @@ Shows both cameras side-by-side in an OpenCV window.
 Press 'q' to quit.
 
 Cameras:
-    cam_1 (exterior) : Intel RealSense D415  serial 105422060444
+    cam_1 (exterior) : Intel RealSense D415  serial 105422061000
     cam_2 (wrist)    : Intel RealSense D405  serial 352122273671
 """
 
