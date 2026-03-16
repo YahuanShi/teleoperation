@@ -52,7 +52,7 @@ GRIPPER_OPEN_THRESHOLD_MM = 15.0  # 50% of GRIPPER_MAX_MM; tune based on master 
 
 # UR5 home/initial joint position (degrees).
 # [shoulder_pan, shoulder_lift, elbow, wrist1, wrist2, wrist3]
-UR5_HOME_DEG = [45.0, -100.0, -120.0, 15.0, -270.0, 0.0]
+UR5_HOME_DEG = [45.0, -20.0, -140.0, -40.0, -270.0, 0.0]
 
 # Reorder master-arm servo indices to UR5 joint indices.
 # JOINT_MAP[i] = which servo channel drives UR5 joint i.
@@ -60,25 +60,31 @@ UR5_HOME_DEG = [45.0, -100.0, -120.0, 15.0, -270.0, 0.0]
 JOINT_MAP = [0, 1, 2, 3, 5, 4]
 
 # Per-joint scale factors (sign correction) applied after reordering.
-JOINT_SCALE = [0.4, -0.3, -0.5, 0.8, 0.8, 0.3]
+JOINT_SCALE = [0.8, -1, -0.9, 1, 0.25, 0.15]
 
 # servoJ parameters — balance between responsiveness and smoothness
 # lookahead_time: 0.03–0.2 s  — higher = smoother motion, more lag
 # gain:           100–2000    — lower = softer/less jerky, less tight tracking
 SERVO_J_TIME = 0.016       # s per step (must match 1/CONTROL_HZ)
-SERVO_J_LOOKAHEAD = 0.15   # s look-ahead (raised from 0.06 → smoother interpolation)
-SERVO_J_GAIN = 200          # stiffness (lowered from 500 → less snapping)
+SERVO_J_LOOKAHEAD = 0.2   # s look-ahead — servoJ's primary smoothing knob; higher = smoother
+SERVO_J_GAIN = 300          # stiffness — higher tracks more tightly
 
-# UR5 joint velocity limit (rad/s) — caps how fast the arm can move per step
-MAX_JOINT_VEL_RAD = 0.4    # rad/s (~23 deg/s); lowered from 0.8 for smoother motion
+# UR5 joint velocity limit (rad/s) — safety cap; set high enough that the UR5
+# can always keep up with the master so no catch-up backlog builds after a stop.
+MAX_JOINT_VEL_RAD = 0.7    # rad/s (~69 deg/s)
+
+# EMA smoothing applied to the joint target inside the 60 Hz control loop.
+# Bridges the gaps between 20 Hz servo updates so the arm glides instead of steps.
+# Higher alpha = faster response but less smoothing.  Range: 0.1 (very smooth) – 1.0 (off).
+CMD_SMOOTH_ALPHA = 0.30
 
 
 # Master-arm gripper channel (index 6): servo[6] is the angle OFFSET from home
 # (zero-referenced, same convention as joints 0-5).
 # Move servo past GRIPPER_OPEN_DEG → open;  past GRIPPER_CLOSE_DEG → close.
 # Dead zone in between keeps current state.  Tune these to match your master arm travel.
-GRIPPER_OPEN_DEG  =  -7.0   # deg offset from home → open  (tune down if hard to trigger)
-GRIPPER_CLOSE_DEG = -17.0  # deg offset from home → close (large negative = intentional only)
+GRIPPER_OPEN_DEG  =  -5.0   # deg offset from home → open  (tune down if hard to trigger)
+GRIPPER_CLOSE_DEG = -14.0  # deg offset from home → close (large negative = intentional only)
 
 CONTROL_HZ = 60  # main joint control loop rate
 GRIPPER_HZ = 10  # gripper command rate
@@ -237,6 +243,7 @@ class UR5TeleopNode(Node):
         self._cmd_joints_rad = self.home_rad.copy()
         self._cmd_gripper_mm = GRIPPER_MAX_MM  # gripper starts open after home()
         self._last_cmd_rad = self.home_rad.copy()
+        self._smooth_rad = self.home_rad.copy()   # EMA state
         self._servo_warned = False
 
         # ── ROS 2 interfaces ──────────────────────────────────────
@@ -282,11 +289,12 @@ class UR5TeleopNode(Node):
                 self.get_logger().warning("[UR5Teleop] /servo_angles needs 7 values (6 joints + gripper)")
                 self._servo_warned = True
             return
-        joints_rad = self._map_joints(data[:6])
+
+        servo6 = data[:6]
         gripper_mm = self._map_gripper(float(data[6]))
         with self._lock:
-            self._cmd_joints_rad = joints_rad
-            if gripper_mm is not None:   # None = dead zone, keep current
+            self._cmd_joints_rad = self._map_joints(servo6)
+            if gripper_mm is not None:
                 self._cmd_gripper_mm = gripper_mm
 
     # ── gripper thread ────────────────────────────────────────────────────────
@@ -317,7 +325,11 @@ class UR5TeleopNode(Node):
                 target_rad = self._cmd_joints_rad.copy()
                 gripper_mm = self._cmd_gripper_mm
 
-            cmd_rad = self._limit_joint_vel(target_rad, dt)
+            # EMA: smoothly interpolate toward the latest servo-mapped target.
+            # This fills the gaps between 20 Hz servo updates at 60 Hz control rate.
+            self._smooth_rad = CMD_SMOOTH_ALPHA * target_rad + (1.0 - CMD_SMOOTH_ALPHA) * self._smooth_rad
+
+            cmd_rad = self._limit_joint_vel(self._smooth_rad, dt)
             self._last_cmd_rad = cmd_rad.copy()
 
             try:
