@@ -7,17 +7,23 @@ Subscribes to Uarm / UR5 teleoperation ROS topics and records demonstration
 episodes in HDF5 format directly compatible with openpi / LeRobot training.
 
 Topics consumed:
-    /cam_1         sensor_msgs/Image       → exterior camera
-    /cam_2         sensor_msgs/Image       → wrist / gripper camera
+    /cam_1         sensor_msgs/Image       → exterior camera        [required]
+    /cam_2         sensor_msgs/Image       → wrist / gripper camera [required]
+    /cam_3         sensor_msgs/Image       → front camera           [optional — auto-detected]
     /robot_state   Float64MultiArray (7,)  → actual joints [deg x6] + gripper [0-1]
     /robot_action  Float64MultiArray (7,)  → commanded action (same layout)
+
+Camera count is auto-detected at startup: if /cam_3 messages arrive within 5 s,
+the recorder runs in 3-camera mode; otherwise 2-camera mode (exterior + wrist only).
+The wrist (cam_2) and exterior (cam_1) cameras are always required.
 
 HDF5 layout written per episode (aloha-compatible, pi0.5 ready):
     /observations/images/exterior_image_1_left  (T, 224, 224, 3) uint8  RGB
     /observations/images/wrist_image_left        (T, 224, 224, 3) uint8  RGB
+    /observations/images/front_image_1           (T, 224, 224, 3) uint8  RGB  [3-cam mode only]
     /observations/qpos                           (T, 7) float64
     /action                                      (T, 7) float64
-    root.attrs: sim, prompt, task, hz, timestamp, n_steps
+    root.attrs: sim, prompt, task, hz, timestamp, n_steps, num_cameras
 
 Keyboard shortcuts (focus the OpenCV preview window):
     P  →  Set task prompt      type once, reused for every episode in this session
@@ -133,6 +139,10 @@ class DataBuffer:
     """
     Creates subscriptions on an existing Node and caches the most recent
     sample of each topic.  Thread-safe.
+
+    Automatically detects whether /cam_3 (front camera) is available:
+    waits up to 5 s for it after the required topics are ready, then
+    locks in 2-camera or 3-camera mode via ``has_front_camera``.
     """
 
     def __init__(self, node: Node):
@@ -142,6 +152,7 @@ class DataBuffer:
 
         self._cam1_bgr: np.ndarray | None = None
         self._cam2_bgr: np.ndarray | None = None
+        self._cam3_bgr: np.ndarray | None = None
         self._state: np.ndarray | None = None
         self._action: np.ndarray | None = None
 
@@ -150,18 +161,37 @@ class DataBuffer:
 
         node.create_subscription(Image, "/cam_1", self._cb_cam1, 10)
         node.create_subscription(Image, "/cam_2", self._cb_cam2, 10)
+        node.create_subscription(Image, "/cam_3", self._cb_cam3, 10)
         node.create_subscription(Float64MultiArray, "/robot_state", self._cb_state, 10)
         node.create_subscription(Float64MultiArray, "/robot_action", self._cb_action, 10)
 
-        node.get_logger().info("[Recorder] Waiting for all four topics …")
+        # ── Wait for the required topics (cam1, cam2, state, action) ─────────
+        node.get_logger().info("[Recorder] Waiting for required topics (cam_1, cam_2, robot_state, robot_action) …")
         deadline = time.time() + 30.0
-        while not self.is_ready():
+        while not self._core_ready():
             if not rclpy.ok():
                 raise RuntimeError("ROS shutdown while waiting for topics")
             if time.time() > deadline:
-                raise RuntimeError("Topics not received after 30 s — ensure the teleoperation nodes are running.")
+                raise RuntimeError("Required topics not received after 30 s — ensure teleoperation nodes are running.")
             time.sleep(0.1)
-        node.get_logger().info("[Recorder] All topics ready.")
+
+        # ── Check for optional front camera (cam_3) with a short timeout ─────
+        node.get_logger().info("[Recorder] Required topics ready. Checking for optional /cam_3 (5 s) …")
+        cam3_deadline = time.time() + 5.0
+        while time.time() < cam3_deadline and rclpy.ok():
+            with self._lock:
+                if self._cam3_bgr is not None:
+                    break
+            time.sleep(0.1)
+
+        with self._lock:
+            self.has_front_camera: bool = self._cam3_bgr is not None
+
+        cam_count = 3 if self.has_front_camera else 2
+        node.get_logger().info(
+            f"[Recorder] {'Front camera detected' if self.has_front_camera else 'No front camera'} "
+            f"— running in {cam_count}-camera mode."
+        )
 
     # ── throttled warning helper ──────────────────────────────────────────────
 
@@ -189,6 +219,14 @@ class DataBuffer:
         except Exception as e:
             self._warn_throttle("cam2", f"[Recorder] cam_2 error: {e}")
 
+    def _cb_cam3(self, msg: Image):
+        try:
+            frame = self._bridge.imgmsg_to_cv2(msg, "bgr8")
+            with self._lock:
+                self._cam3_bgr = frame
+        except Exception as e:
+            self._warn_throttle("cam3", f"[Recorder] cam_3 error: {e}")
+
     def _cb_state(self, msg: Float64MultiArray):
         with self._lock:
             self._state = np.array(msg.data, dtype=np.float64)
@@ -199,14 +237,24 @@ class DataBuffer:
 
     # ── public API ────────────────────────────────────────────────────────────
 
-    def is_ready(self) -> bool:
+    def _core_ready(self) -> bool:
         with self._lock:
             return all(x is not None for x in [self._cam1_bgr, self._cam2_bgr, self._state, self._action])
+
+    def is_ready(self) -> bool:
+        with self._lock:
+            core = all(x is not None for x in [self._cam1_bgr, self._cam2_bgr, self._state, self._action])
+            if self.has_front_camera:
+                return core and self._cam3_bgr is not None
+            return core
 
     def get_snapshot(self) -> dict | None:
         with self._lock:
             # Inline check — do NOT call is_ready() here (it also acquires _lock → deadlock)
-            if any(x is None for x in [self._cam1_bgr, self._cam2_bgr, self._state, self._action]):
+            required = [self._cam1_bgr, self._cam2_bgr, self._state, self._action]
+            if self.has_front_camera:
+                required.append(self._cam3_bgr)
+            if any(x is None for x in required):
                 return None
             snap = {
                 "cam1_rgb": cv2.cvtColor(self._cam1_bgr, cv2.COLOR_BGR2RGB),
@@ -214,14 +262,21 @@ class DataBuffer:
                 "state": self._state.copy(),
                 "action": self._action.copy(),
             }
+            if self.has_front_camera:
+                snap["cam3_rgb"] = cv2.cvtColor(self._cam3_bgr, cv2.COLOR_BGR2RGB)
         self._step_ts.append(time.time())
         return snap
 
-    def get_preview_frames(self) -> tuple:
+    def get_preview_frames(self) -> list:
+        """Return list of [cam1, cam2] or [cam1, cam2, cam3] BGR frames."""
         with self._lock:
             c1 = self._cam1_bgr.copy() if self._cam1_bgr is not None else None
             c2 = self._cam2_bgr.copy() if self._cam2_bgr is not None else None
-        return c1, c2
+            frames = [c1, c2]
+            if self.has_front_camera:
+                c3 = self._cam3_bgr.copy() if self._cam3_bgr is not None else None
+                frames.append(c3)
+        return frames
 
     def avg_hz(self) -> float:
         ts = list(self._step_ts)
@@ -242,6 +297,7 @@ def save_episode_hdf5(episode: dict, path: str, prompt: str, task: str, hz: floa
 
     cam1 = np.stack(episode["cam1_rgb"])
     cam2 = np.stack(episode["cam2_rgb"])
+    cam3 = np.stack(episode["cam3_rgb"]) if "cam3_rgb" in episode else None
     qpos = np.stack(episode["state"])
     action = np.stack(episode["action"])
 
@@ -255,16 +311,20 @@ def save_episode_hdf5(episode: dict, path: str, prompt: str, task: str, hz: floa
         root.attrs["hz"] = hz
         root.attrs["n_steps"] = n_steps
         root.attrs["timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        root.attrs["num_cameras"] = 3 if cam3 is not None else 2
 
         chunk = (1, IMAGE_H, IMAGE_W, 3)
         obs = root.create_group("observations")
         imgs = obs.create_group("images")
         imgs.create_dataset("exterior_image_1_left", data=cam1, dtype="uint8", chunks=chunk, compression="lzf")
-        imgs.create_dataset("wrist_image_left", data=cam2, dtype="uint8", chunks=chunk, compression="lzf")
+        imgs.create_dataset("wrist_image_left",      data=cam2, dtype="uint8", chunks=chunk, compression="lzf")
+        if cam3 is not None:
+            imgs.create_dataset("front_image_1",     data=cam3, dtype="uint8", chunks=chunk, compression="lzf")
         obs.create_dataset("qpos", data=qpos, dtype="float64", compression="gzip", compression_opts=4)
         root.create_dataset("action", data=action, dtype="float64", compression="gzip", compression_opts=4)
 
-    print(f"[Recorder] Saved {n_steps} steps → {path}  ({time.time() - t0:.2f} s)")
+    cams_str = "3 cameras" if cam3 is not None else "2 cameras"
+    print(f"[Recorder] Saved {n_steps} steps ({cams_str}) → {path}  ({time.time() - t0:.2f} s)")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -326,9 +386,14 @@ def _txt(img, text, x, y, fs, color, th=_TH):
     cv2.putText(img, text, (x, y), _F, fs, color,    th,     cv2.LINE_AA)
 
 
-def build_preview(cam1_bgr, cam2_bgr, rec_state, n_steps, avg_hz, prompt, episode_idx) -> np.ndarray:
-    W, H = PREVIEW_W, PREVIEW_H
-    TW   = W * 2   # total width
+_CAM_LABELS = ["EXTERIOR  CAM 1", "WRIST  CAM 2", "FRONT  CAM 3"]
+
+
+def build_preview(cam_frames: list, rec_state, n_steps, avg_hz, prompt, episode_idx) -> np.ndarray:
+    """Build the preview image.  cam_frames is [cam1_bgr, cam2_bgr] or [cam1_bgr, cam2_bgr, cam3_bgr]."""
+    W, H  = PREVIEW_W, PREVIEW_H
+    N     = len(cam_frames)          # 2 or 3
+    TW    = W * N
 
     recording = rec_state == RECORDING
     accent    = _ACCENT_R if recording else _ACCENT_W
@@ -346,25 +411,25 @@ def build_preview(cam1_bgr, cam2_bgr, rec_state, n_steps, avg_hz, prompt, episod
             cv2.rectangle(f, (0, 0), (W - 1, H - 1), _ACCENT_R, 2)
         return f
 
-    cam1 = prep(cam1_bgr)
-    cam2 = prep(cam2_bgr)
-    cameras = np.concatenate([cam1, cam2], axis=1)
-    cv2.line(cameras, (W, 0), (W, H), _DIV, 1)   # center divider
+    prepped  = [prep(f) for f in cam_frames]
+    cameras  = np.concatenate(prepped, axis=1)
+    for i in range(1, N):
+        cv2.line(cameras, (W * i, 0), (W * i, H), _DIV, 1)
 
     # ── 2. Header strip (camera labels) ──────────────────────────────────────
     hdr = np.full((HEADER_H, TW, 3), _BG_HEADER[0], dtype=np.uint8)
     cv2.line(hdr, (0, HEADER_H - 1), (TW, HEADER_H - 1), _DIV, 1)
-    cv2.line(hdr, (W, 0), (W, HEADER_H), _DIV, 1)
-    _txt(hdr, "EXTERIOR  CAM 1", 12, 19, _FSM, _GRAY)
-    _txt(hdr, "WRIST  CAM 2",   W + 12, 19, _FSM, _GRAY)
+    for i in range(1, N):
+        cv2.line(hdr, (W * i, 0), (W * i, HEADER_H), _DIV, 1)
+    for i, label in enumerate(_CAM_LABELS[:N]):
+        _txt(hdr, label, W * i + 12, 19, _FSM, _GRAY)
 
     # ── 3. Status panel ───────────────────────────────────────────────────────
     pan = np.full((STATUS_H, TW, 3), _BG_STATUS[0], dtype=np.uint8)
-    cv2.line(pan, (0, 0), (TW, 0), _DIV, 1)          # top border
-    cv2.rectangle(pan, (0, 0), (4, STATUS_H), accent, -1)   # accent stripe
+    cv2.line(pan, (0, 0), (TW, 0), _DIV, 1)
+    cv2.rectangle(pan, (0, 0), (4, STATUS_H), accent, -1)
 
     if recording:
-        # Row 1: REC badge + episode/steps/hz
         dot_x, dot_y = 22, 26
         if blink:
             cv2.circle(pan, (dot_x, dot_y), 8, _ACCENT_R, -1)
@@ -372,18 +437,13 @@ def build_preview(cam1_bgr, cam2_bgr, rec_state, n_steps, avg_hz, prompt, episod
         _txt(pan, "REC", dot_x + 15, dot_y + 5, _FMD, _ACCENT_R, _STR)
         _txt(pan, f"Ep {episode_idx}    {n_steps} steps    {avg_hz:.1f} Hz",
              dot_x + 65, dot_y + 5, _FMD, _WHITE)
-        # Row 2: prompt
         _txt(pan, f"Prompt:  {prompt_s}", 12, 56, _FSM, _PROMPT_COL)
-        # Row 3: hint
         _txt(pan, "S : stop & save", 12, 78, _FSM, _HINT)
     else:
-        # Row 1: state badge + episode
         _txt(pan, "WAITING", 12, 28, _FLG, _ACCENT_W, _STR)
         _txt(pan, f"Ep {episode_idx}    {n_steps} steps", 130, 28, _FMD, _WHITE)
-        # Row 2: prompt
         p_col = _PROMPT_COL if prompt else _HINT
         _txt(pan, f"Prompt:  {prompt_s}", 12, 56, _FSM, p_col)
-        # Row 3: hints
         _txt(pan, "P: prompt    B: begin recording    D: delete last    Q: quit",
              12, 78, _FSM, _HINT)
 
@@ -463,11 +523,13 @@ def run(args) -> None:
     def _pub_rec(state: bool):
         rec_pub.publish(Bool(data=state))
 
-    # ── OpenCV preview window ─────────────────────────────────────────────────
-    win = "Recorder  [exterior | wrist]"
+    # ── OpenCV preview window (adaptive width) ────────────────────────────────
+    num_cams = 3 if buf.has_front_camera else 2
+    win_label = "exterior | wrist | front" if buf.has_front_camera else "exterior | wrist"
+    win = f"Recorder  [{win_label}]"
     cv2.namedWindow(win, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(win, PREVIEW_W * 2, HEADER_H + PREVIEW_H + STATUS_H)
-    cv2.moveWindow(win, 30, 30)   # top-left of monitor (adjust if needed)
+    cv2.resizeWindow(win, PREVIEW_W * num_cams, HEADER_H + PREVIEW_H + STATUS_H)
+    cv2.moveWindow(win, 30, 30)
 
     # ── state + buffers ───────────────────────────────────────────────────────
     rec_state: str = WAITING
@@ -479,6 +541,8 @@ def run(args) -> None:
     def reset_buf():
         nonlocal episode_buf, step_ts, last_step_t
         episode_buf = {"cam1_rgb": [], "cam2_rgb": [], "state": [], "action": []}
+        if buf.has_front_camera:
+            episode_buf["cam3_rgb"] = []
         step_ts = []
         last_step_t = 0.0
 
@@ -487,8 +551,8 @@ def run(args) -> None:
     # ── main loop ─────────────────────────────────────────────────────────────
     try:
         while rclpy.ok():
-            c1_bgr, c2_bgr = buf.get_preview_frames()
-            frame = build_preview(c1_bgr, c2_bgr, rec_state, len(step_ts), buf.avg_hz(), prompt, episode_idx)
+            cam_frames = buf.get_preview_frames()
+            frame = build_preview(cam_frames, rec_state, len(step_ts), buf.avg_hz(), prompt, episode_idx)
             cv2.imshow(win, frame)
             cv_key = cv2.waitKey(10) & 0xFF
 
@@ -513,13 +577,13 @@ def run(args) -> None:
                     except queue.Empty:
                         break
                 while True:
-                    c1_bgr, c2_bgr = buf.get_preview_frames()
+                    cam_frames = buf.get_preview_frames()
                     # Build a full-layout frame with the prompt panel below
-                    _frame = build_preview(c1_bgr, c2_bgr, WAITING, len(step_ts), buf.avg_hz(), prompt, episode_idx)
+                    _frame = build_preview(cam_frames, WAITING, len(step_ts), buf.avg_hz(), prompt, episode_idx)
                     # Overwrite the status panel with the typing prompt
                     pan_y = HEADER_H + PREVIEW_H
                     _frame[pan_y:, :] = _BG_STATUS[0]
-                    cv2.line(_frame, (0, pan_y), (PREVIEW_W * 2, pan_y), _DIV, 1)
+                    cv2.line(_frame, (0, pan_y), (PREVIEW_W * num_cams, pan_y), _DIV, 1)
                     cv2.rectangle(_frame, (0, pan_y), (4, pan_y + STATUS_H), _PROMPT_COL, -1)
                     _txt(_frame, "SET PROMPT", 12, pan_y + 26, _FLG, _PROMPT_COL, _STR)
                     _txt(_frame, f"> {typing}_", 12, pan_y + 56, _FMD, _WHITE)
@@ -608,6 +672,8 @@ def run(args) -> None:
                     if snap is not None:
                         episode_buf["cam1_rgb"].append(preprocess_image(snap["cam1_rgb"]))
                         episode_buf["cam2_rgb"].append(preprocess_image(snap["cam2_rgb"]))
+                        if buf.has_front_camera:
+                            episode_buf["cam3_rgb"].append(preprocess_image(snap["cam3_rgb"]))
                         episode_buf["state"].append(snap["state"])
                         episode_buf["action"].append(snap["action"])
                         step_ts.append(now)

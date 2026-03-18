@@ -47,7 +47,7 @@ _GRAY = (140, 140, 140)
 
 def load_episode(hdf5_path: Path) -> dict:
     with h5py.File(hdf5_path, "r") as f:
-        return {
+        ep = {
             "qpos": f["/observations/qpos"][:],  # (T,7) deg
             "action": f["/action"][:],  # (T,7) deg
             "ext": f["/observations/images/exterior_image_1_left"][:],  # (T,224,224,3) RGB
@@ -55,6 +55,10 @@ def load_episode(hdf5_path: Path) -> dict:
             "prompt": str(f.attrs.get("prompt", "")),
             "hz": float(f.attrs.get("hz", 15)),
         }
+        # front_image_1 is optional (only present in 3-camera recordings)
+        if "front_image_1" in f["/observations/images"]:
+            ep["front"] = f["/observations/images/front_image_1"][:]
+        return ep
 
 
 def resolve_path(raw: Path, episode_idx: int) -> Path:
@@ -139,16 +143,19 @@ def build_frame(
     delay_ms: int,
 ) -> np.ndarray:
     # Camera panels
-    ext_bgr = cv2.cvtColor(ep["ext"][t], cv2.COLOR_RGB2BGR)
-    wrist_bgr = cv2.cvtColor(ep["wrist"][t], cv2.COLOR_RGB2BGR)
-    ext_big = cv2.resize(ext_bgr, (w_disp, h_disp), interpolation=cv2.INTER_NEAREST)
-    wrist_big = cv2.resize(wrist_bgr, (w_disp, h_disp), interpolation=cv2.INTER_NEAREST)
-
-    _put(ext_big, "Exterior", (8, 26), scale=0.7, color=_YELLOW, thickness=2)
-    _put(wrist_big, "Wrist", (8, 26), scale=0.7, color=_YELLOW, thickness=2)
+    panels_info = [("ext", "Exterior"), ("wrist", "Wrist")]
+    if "front" in ep:
+        panels_info.append(("front", "Front"))
 
     pad_v = np.zeros((h_disp, _PAD, 3), dtype=np.uint8)
-    cameras = np.hstack([pad_v, ext_big, pad_v, wrist_big, pad_v])
+    cam_panels = [pad_v]
+    for key, label in panels_info:
+        bgr = cv2.cvtColor(ep[key][t], cv2.COLOR_RGB2BGR)
+        big = cv2.resize(bgr, (w_disp, h_disp), interpolation=cv2.INTER_NEAREST)
+        _put(big, label, (8, 26), scale=0.7, color=_YELLOW, thickness=2)
+        cam_panels.append(big)
+        cam_panels.append(pad_v)
+    cameras = np.hstack(cam_panels)
 
     info = make_info_panel(
         win_w,
@@ -183,19 +190,23 @@ def replay(hdf5_path: Path) -> None:
     h_orig, w_orig = ep["ext"].shape[1:3]  # 224, 224
     h_disp = h_orig * _SCALE  # 448
     w_disp = w_orig * _SCALE  # 448
-    win_w = w_disp * 2 + _PAD * 3
+    num_cams = 3 if "front" in ep else 2
+    win_w = w_disp * num_cams + _PAD * (num_cams + 1)
     win_h = h_disp + _INFO_H + _PAD
+
+    win_label = "exterior | wrist | front" if "front" in ep else "exterior | wrist"
+    win_title = f"Replay  [{win_label}]"
 
     delay_ms = max(1, int(1000 / ep["hz"]))
     paused = False
     t = 0
 
-    cv2.namedWindow("Replay  [exterior | wrist]", cv2.WINDOW_NORMAL)
-    cv2.resizeWindow("Replay  [exterior | wrist]", win_w, win_h)
+    cv2.namedWindow(win_title, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(win_title, win_w, win_h)
 
     while True:
         frame = build_frame(ep, t, n_total, w_disp, h_disp, win_w, paused=paused, delay_ms=delay_ms)
-        cv2.imshow("Replay  [exterior | wrist]", frame)
+        cv2.imshow(win_title, frame)
 
         key = cv2.waitKey(0 if paused else delay_ms) & 0xFF
 

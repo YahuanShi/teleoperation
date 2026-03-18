@@ -5,16 +5,17 @@
 # Node graph:
 #   Uarm_teleop/servo_reader  →  /servo_angles  →  servo2ur5.py  →  /robot_action
 #   ur5_pub.py                →  /robot_state
-#   cam_pub.py                →  /cam_1, /cam_2
+#   cam_pub.py                →  /cam_1, /cam_2 [, /cam_3 if front camera connected]
 #   episode_recorder.py  (subscribes to /robot_action, /robot_state, /cam_*)
 #   joint_viz.py         (subscribes to /servo_angles, /robot_state, /is_recording)
 #
-# Window layout (1920×1080 monitor):
+# Window layout (1920×1080 monitor — 3-camera mode):
 #   ┌─────────────────────────────────────────────────────────┐
-#   │  Recorder  [exterior | wrist]   (30, 30)  1280 × 596   │
+#   │  Recorder  [exterior|wrist|front]  (30,30)  1920×596   │
 #   ├─────────────────────────────────────────────────────────┤
-#   │  Joint Trajectories             (30,660)  1300 × 380   │
+#   │  Joint Trajectories               (30,660)  1300×380   │
 #   └─────────────────────────────────────────────────────────┘
+# In 2-camera mode the Recorder window is 1280×596.
 #
 # Usage:
 #   bash run_ur5_nodes.sh

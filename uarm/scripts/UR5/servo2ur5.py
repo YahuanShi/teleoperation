@@ -60,7 +60,7 @@ UR5_HOME_DEG = [45.0, -20.0, -140.0, -40.0, -270.0, 0.0]
 JOINT_MAP = [0, 1, 2, 3, 5, 4]
 
 # Per-joint scale factors (sign correction) applied after reordering.
-JOINT_SCALE = [0.8, -1, -0.9, 1, 0.8, 0.7]
+JOINT_SCALE = [0.8, -1, -0.9, 1, 0.8, 0.6]
 
 # servoJ parameters — balance between responsiveness and smoothness
 # lookahead_time: 0.03–0.2 s  — higher = smoother motion, more lag
@@ -74,7 +74,7 @@ SERVO_J_GAIN = 300          # stiffness — higher tracks more tightly
 MAX_JOINT_VEL_RAD = 0.7    # rad/s (~69 deg/s)
 
 # EMA smoothing applied to the joint target inside the 60 Hz control loop.
-# Bridges the gaps between 20 Hz servo updates so the arm glides instead of steps.
+# Bridges the gaps between 20 Hz servo updates so the arm glides instead of steps.  
 # Higher alpha = faster response but less smoothing.  Range: 0.1 (very smooth) – 1.0 (off).
 CMD_SMOOTH_ALPHA = 0.30
 
@@ -83,7 +83,7 @@ CMD_SMOOTH_ALPHA = 0.30
 # (zero-referenced, same convention as joints 0-5).
 # Move servo past GRIPPER_OPEN_DEG → open;  past GRIPPER_CLOSE_DEG → close.
 # Dead zone in between keeps current state.  Tune these to match your master arm travel.
-GRIPPER_OPEN_DEG  =  -5.0   # deg offset from home → open  (tune down if hard to trigger)
+GRIPPER_OPEN_DEG  =  -7.0   # deg offset from home → open  (tune down if hard to trigger)
 GRIPPER_CLOSE_DEG = -14.0  # deg offset from home → close (large negative = intentional only)
 
 CONTROL_HZ = 60  # main joint control loop rate

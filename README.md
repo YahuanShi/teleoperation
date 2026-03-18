@@ -14,7 +14,7 @@ ROS 2 Humble teleoperation system for collecting robot demonstration datasets co
 | Master arm | Uarm with Feetech or Zhonglin servos | USB serial |
 | Follower arm | Universal Robots UR5 | Ethernet (RTDE) |
 | Gripper | Weiss Robotics CRG 30-050 | USB (`/dev/ttyACM0`) |
-| Cameras | Intel RealSense D4xx × 2 | USB |
+| Cameras | Intel RealSense D4xx × 2 or 3 (auto-detected) | USB |
 
 ---
 
@@ -77,13 +77,16 @@ These values must be updated to match each machine's hardware before running:
 ### Camera serial numbers — `data_collection/cam_pub.py`
 
 ```python
-config_1.enable_device('106523022523')  # exterior camera
-config_2.enable_device('254723071135')  # wrist camera
+SERIAL_1 = "105422061000"  # exterior camera (D415)  [required]
+SERIAL_2 = "352122273671"  # wrist camera    (D405)  [required]
+SERIAL_3 = "104122061227"  # front camera    (D415, USB 2.1) [optional — auto-detected]
 ```
+
+The front camera (`SERIAL_3`) is optional. At startup `cam_pub.py` queries pyrealsense2 for connected devices; if `SERIAL_3` is not found it runs in 2-camera mode automatically. The recorder and replay viewer adapt accordingly.
 
 Find your serial numbers:
 ```bash
-rs-enumerate-devices | grep Serial
+python3 -c "import pyrealsense2 as rs; [print(d.get_info(rs.camera_info.serial_number), d.get_info(rs.camera_info.name)) for d in rs.context().query_devices()]"
 ```
 
 ### UR5 and gripper constants — `uarm/scripts/UR5/servo2ur5.py` and `ur5_pub.py`
@@ -117,7 +120,7 @@ This starts five nodes in parallel:
 
 | # | Script | Publishes |
 |---|---|---|
-| 1 | `cam_pub.py` | `/cam_1`, `/cam_2` |
+| 1 | `cam_pub.py` | `/cam_1`, `/cam_2` [, `/cam_3` if front camera connected] |
 | 2 | `ur5_pub.py` | `/robot_state` |
 | 3 | `feetech_servo_reader.py` | `/servo_angles` |
 | 4 | `servo2ur5.py` | `/robot_action` |
@@ -169,11 +172,12 @@ episode_N.hdf5
 ├── observations/
 │   ├── images/
 │   │   ├── exterior_image_1_left   (T, 224, 224, 3)  uint8   lzf
-│   │   └── wrist_image_left        (T, 224, 224, 3)  uint8   lzf
+│   │   ├── wrist_image_left        (T, 224, 224, 3)  uint8   lzf
+│   │   └── front_image_1           (T, 224, 224, 3)  uint8   lzf  [3-camera only]
 │   └── qpos                        (T, 7)             float64 gzip
 └── action                          (T, 7)             float64 gzip
 
-attrs: sim, prompt, task, hz, n_steps, timestamp
+attrs: sim, prompt, task, hz, n_steps, timestamp, num_cameras
 ```
 
 `qpos` / `action` layout: `[joint_0 … joint_5 (deg), gripper (0=closed, 1=open)]`
@@ -189,10 +193,10 @@ teleoperation/
 ├── .venv/                             # Python venv (created by install.sh, git-ignored)
 ├── data_collection/                   # Robot-agnostic data tools
 │   ├── episode_recorder.py            # HDF5 dataset recorder (pi0.5 format)
-│   ├── cam_pub.py                     # Dual RealSense camera ROS 2 publisher
+│   ├── cam_pub.py                     # Adaptive RealSense camera publisher (2 or 3 cams)
 │   ├── visualize_episode.py           # Live viewer during recording (ROS 2 subscriber)
-│   ├── replay_episode.py              # Offline HDF5 episode viewer (no ROS)
-│   └── test_cam.py                    # Quick single-camera sanity check
+│   ├── replay_episode.py              # Offline HDF5 episode viewer (no ROS, 2/3-cam aware)
+│   └── test_cam.py                    # Camera hardware sanity check (auto-detects all cams)
 │
 └── uarm/                              # ROS 2 package (ament_python)
     ├── package.xml
@@ -225,8 +229,10 @@ UR5/ur5_pub.py    ────────────────────�
 
 data_collection/cam_pub.py              →  /cam_1  (exterior, sensor_msgs/Image)
                                         →  /cam_2  (wrist,    sensor_msgs/Image)
+                                        →  /cam_3  (front,    sensor_msgs/Image)  [if connected]
 
-data_collection/episode_recorder.py   subscribes to all four topics above
+data_collection/episode_recorder.py   subscribes to all topics above
+                                       (auto-detects /cam_3; records 2 or 3 images per step)
 ```
 
 ---
