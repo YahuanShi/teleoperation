@@ -88,7 +88,7 @@ _TODAY = datetime.datetime.now(tz=datetime.timezone.utc).date().strftime("%Y%m%d
 TASK_CONFIGS: dict = {
     "default": {
         "dataset_dir": os.path.join(_OPENPI_ROOT, "dataset", f"ur5_dataset_{_TODAY}"),
-        "episode_len": 1000,
+        "episode_len": 100000,
         "hz": 10,
     },
     # "pick_place": {
