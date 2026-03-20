@@ -68,9 +68,9 @@ PID_REC=$!
 echo "[INFO] episode_recorder.py  → PID $PID_REC"
 
 # ── 6. Joint trajectory visualizer ──────────────────────────────────────────
-python3 "$SCRIPT_DIR/joint_viz.py" &
-PID_VIZ=$!
-echo "[INFO] joint_viz.py  → PID $PID_VIZ"
+# python3 "$SCRIPT_DIR/joint_viz.py" &
+# PID_VIZ=$!
+# echo "[INFO] joint_viz.py  → PID $PID_VIZ"
 
 # ── Cleanup on Ctrl+C ────────────────────────────────────────────────────────
 trap "echo '';
