@@ -44,12 +44,11 @@ from collections import deque
 import contextlib
 import datetime
 import os
+import queue
 import signal
 import sys
 import threading
 import time
-
-import queue
 
 import cv2
 from cv_bridge import CvBridge
@@ -58,7 +57,8 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
-from std_msgs.msg import Bool, Float64MultiArray
+from std_msgs.msg import Bool
+from std_msgs.msg import Float64MultiArray
 
 # Global keyboard listener (works regardless of which window has focus).
 # Falls back gracefully if pynput is unavailable.
@@ -67,10 +67,8 @@ try:
     from pynput import keyboard as _kb
 
     def _on_press(key):
-        try:
-            _key_queue.put(key.char)
-        except AttributeError:
-            pass  # special key (shift, ctrl, …) — ignore
+        with contextlib.suppress(AttributeError):
+            _key_queue.put(key.char)  # special key (shift, ctrl, …) has no .char — ignore
 
     _kb.Listener(on_press=_on_press, daemon=True).start()
 except Exception:
@@ -83,7 +81,7 @@ except Exception:
 # Resolve openpi project root: this script lives at
 #   <openpi_root>/teleoperation/data_collection/episode_recorder.py
 _OPENPI_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
-_TODAY = datetime.datetime.now(tz=datetime.timezone.utc).date().strftime("%Y%m%d")
+_TODAY = datetime.datetime.now(tz=datetime.UTC).date().strftime("%Y%m%d")
 
 TASK_CONFIGS: dict = {
     "default": {
@@ -99,9 +97,9 @@ TASK_CONFIGS: dict = {
 }
 
 IMAGE_H, IMAGE_W = 224, 224
-PREVIEW_H, PREVIEW_W = 480, 640   # per-camera frame size
-HEADER_H  = 28                    # camera label strip above images
-STATUS_H  = 88                    # info panel below images
+PREVIEW_H, PREVIEW_W = 480, 640  # per-camera frame size
+HEADER_H = 28  # camera label strip above images
+STATUS_H = 88  # info panel below images
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Image preprocessing
@@ -317,9 +315,9 @@ def save_episode_hdf5(episode: dict, path: str, prompt: str, task: str, hz: floa
         obs = root.create_group("observations")
         imgs = obs.create_group("images")
         imgs.create_dataset("exterior_image_1_left", data=cam1, dtype="uint8", chunks=chunk, compression="lzf")
-        imgs.create_dataset("wrist_image_left",      data=cam2, dtype="uint8", chunks=chunk, compression="lzf")
+        imgs.create_dataset("wrist_image_left", data=cam2, dtype="uint8", chunks=chunk, compression="lzf")
         if cam3 is not None:
-            imgs.create_dataset("front_image_1",     data=cam3, dtype="uint8", chunks=chunk, compression="lzf")
+            imgs.create_dataset("front_image_1", data=cam3, dtype="uint8", chunks=chunk, compression="lzf")
         obs.create_dataset("qpos", data=qpos, dtype="float64", compression="gzip", compression_opts=4)
         root.create_dataset("action", data=action, dtype="float64", compression="gzip", compression_opts=4)
 
@@ -362,28 +360,28 @@ def delete_last_episode(dataset_dir: str, episode_idx: int) -> int:
 
 
 # ── UI palette (BGR) ─────────────────────────────────────────────────────────
-_F   = cv2.FONT_HERSHEY_DUPLEX
-_FSM = 0.50   # small
-_FMD = 0.65   # medium
-_FLG = 0.80   # large
-_TH  = 1
+_F = cv2.FONT_HERSHEY_DUPLEX
+_FSM = 0.50  # small
+_FMD = 0.65  # medium
+_FLG = 0.80  # large
+_TH = 1
 _STR = 2
 
-_BG_HEADER  = (42,  42,  42)
-_BG_STATUS  = (22,  22,  22)
-_BG_CAM     = (18,  18,  18)
-_DIV        = (58,  58,  58)
-_WHITE      = (230, 230, 230)
-_GRAY       = (150, 150, 150)
-_HINT       = (85,  85,  85)
-_ACCENT_W   = (80,  190, 100)   # green  — WAITING
-_ACCENT_R   = (55,  55,  210)   # red    — RECORDING
-_PROMPT_COL = (80,  185, 220)   # warm cyan
+_BG_HEADER = (42, 42, 42)
+_BG_STATUS = (22, 22, 22)
+_BG_CAM = (18, 18, 18)
+_DIV = (58, 58, 58)
+_WHITE = (230, 230, 230)
+_GRAY = (150, 150, 150)
+_HINT = (85, 85, 85)
+_ACCENT_W = (80, 190, 100)  # green  — WAITING
+_ACCENT_R = (55, 55, 210)  # red    — RECORDING
+_PROMPT_COL = (80, 185, 220)  # warm cyan
 
 
 def _txt(img, text, x, y, fs, color, th=_TH):
     cv2.putText(img, text, (x, y), _F, fs, (0, 0, 0), th + 2, cv2.LINE_AA)
-    cv2.putText(img, text, (x, y), _F, fs, color,    th,     cv2.LINE_AA)
+    cv2.putText(img, text, (x, y), _F, fs, color, th, cv2.LINE_AA)
 
 
 _CAM_LABELS = ["EXTERIOR  CAM 1", "WRIST  CAM 2", "FRONT  CAM 3"]
@@ -391,14 +389,14 @@ _CAM_LABELS = ["EXTERIOR  CAM 1", "WRIST  CAM 2", "FRONT  CAM 3"]
 
 def build_preview(cam_frames: list, rec_state, n_steps, avg_hz, prompt, episode_idx) -> np.ndarray:
     """Build the preview image.  cam_frames is [cam1_bgr, cam2_bgr] or [cam1_bgr, cam2_bgr, cam3_bgr]."""
-    W, H  = PREVIEW_W, PREVIEW_H
-    N     = len(cam_frames)          # 2 or 3
-    TW    = W * N
+    W, H = PREVIEW_W, PREVIEW_H
+    N = len(cam_frames)  # 2 or 3
+    TW = W * N
 
     recording = rec_state == RECORDING
-    accent    = _ACCENT_R if recording else _ACCENT_W
-    blink     = int(time.time() * 2) % 2 == 0
-    prompt_s  = (prompt[:52] + "...") if len(prompt) > 52 else (prompt or "—  press  P  to set")
+    accent = _ACCENT_R if recording else _ACCENT_W
+    blink = int(time.time() * 2) % 2 == 0
+    prompt_s = (prompt[:52] + "...") if len(prompt) > 52 else (prompt or "—  press  P  to set")
 
     # ── 1. Camera frames (clean, no text) ────────────────────────────────────
     def prep(img):
@@ -411,8 +409,8 @@ def build_preview(cam_frames: list, rec_state, n_steps, avg_hz, prompt, episode_
             cv2.rectangle(f, (0, 0), (W - 1, H - 1), _ACCENT_R, 2)
         return f
 
-    prepped  = [prep(f) for f in cam_frames]
-    cameras  = np.concatenate(prepped, axis=1)
+    prepped = [prep(f) for f in cam_frames]
+    cameras = np.concatenate(prepped, axis=1)
     for i in range(1, N):
         cv2.line(cameras, (W * i, 0), (W * i, H), _DIV, 1)
 
@@ -435,8 +433,7 @@ def build_preview(cam_frames: list, rec_state, n_steps, avg_hz, prompt, episode_
             cv2.circle(pan, (dot_x, dot_y), 8, _ACCENT_R, -1)
             cv2.circle(pan, (dot_x, dot_y), 8, (255, 255, 255), 1)
         _txt(pan, "REC", dot_x + 15, dot_y + 5, _FMD, _ACCENT_R, _STR)
-        _txt(pan, f"Ep {episode_idx}    {n_steps} steps    {avg_hz:.1f} Hz",
-             dot_x + 65, dot_y + 5, _FMD, _WHITE)
+        _txt(pan, f"Ep {episode_idx}    {n_steps} steps    {avg_hz:.1f} Hz", dot_x + 65, dot_y + 5, _FMD, _WHITE)
         _txt(pan, f"Prompt:  {prompt_s}", 12, 56, _FSM, _PROMPT_COL)
         _txt(pan, "S : stop & save", 12, 78, _FSM, _HINT)
     else:
@@ -444,8 +441,7 @@ def build_preview(cam_frames: list, rec_state, n_steps, avg_hz, prompt, episode_
         _txt(pan, f"Ep {episode_idx}    {n_steps} steps", 130, 28, _FMD, _WHITE)
         p_col = _PROMPT_COL if prompt else _HINT
         _txt(pan, f"Prompt:  {prompt_s}", 12, 56, _FSM, p_col)
-        _txt(pan, "P: prompt    B: begin recording    D: delete last    Q: quit",
-             12, 78, _FSM, _HINT)
+        _txt(pan, "P: prompt    B: begin recording    D: delete last    Q: quit", 12, 78, _FSM, _HINT)
 
     return np.vstack([hdr, cameras, pan])
 
@@ -560,10 +556,8 @@ def run(args) -> None:
             key_char: str | None = None
             if cv_key != 255:
                 key_char = chr(cv_key)
-            try:
+            with contextlib.suppress(queue.Empty):
                 key_char = _key_queue.get_nowait()
-            except queue.Empty:
-                pass
 
             key = ord(key_char) if key_char else 255
 
@@ -592,23 +586,21 @@ def run(args) -> None:
                     cv_k = cv2.waitKey(50) & 0xFF
                     # Accept from pynput queue first, then cv2
                     pk: str | None = None
-                    try:
+                    with contextlib.suppress(queue.Empty):
                         pk = _key_queue.get_nowait()
-                    except queue.Empty:
-                        pass
                     if pk is not None:
-                        if pk == "\r" or pk == "\n":
+                        if pk in {"\r", "\n"}:
                             break
-                        elif pk == "\x1b":
+                        if pk == "\x1b":
                             typing = ""
                             break
-                        elif pk in ("\x08", "\x7f"):
+                        if pk in ("\x08", "\x7f"):
                             typing = typing[:-1]
                         elif len(pk) == 1 and 32 <= ord(pk) <= 126:
                             typing += pk
-                    elif cv_k == 13:   # Enter — confirm
+                    elif cv_k == 13:  # Enter — confirm
                         break
-                    elif cv_k == 27:   # Esc — cancel
+                    elif cv_k == 27:  # Esc — cancel
                         typing = ""
                         break
                     elif cv_k in (8, 127):  # Backspace
@@ -658,10 +650,8 @@ def run(args) -> None:
                 if rec_state == RECORDING:
                     node.get_logger().warning("[Recorder] Quit while recording — data NOT saved.")
                 node.get_logger().info("[Recorder] Quitting — shutting down all pipeline nodes.")
-                try:
+                with contextlib.suppress(Exception):
                     os.killpg(os.getpgrp(), signal.SIGTERM)
-                except Exception:
-                    pass
                 break
 
             # ── recording step (rate-limited to hz) ───────────────────────────

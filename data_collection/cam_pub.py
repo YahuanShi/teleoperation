@@ -46,8 +46,7 @@ class CameraNode(Node):
         connected = _connected_serials()
         self._has_front = SERIAL_3 in connected
         self.get_logger().info(
-            f"[CamPub] Detected serials: {connected}  →  "
-            f"{'3-camera' if self._has_front else '2-camera'} mode"
+            f"[CamPub] Detected serials: {connected}  →  {'3-camera' if self._has_front else '2-camera'} mode"
         )
 
         # Latest frames (protected by _lock)
@@ -86,8 +85,8 @@ class CameraNode(Node):
             (640, 480, rs.format.bgr8, 30),
             (848, 480, rs.format.bgr8, 30),
             (640, 480, rs.format.rgb8, 30),
-            (640, 480, rs.format.yuyv, 30),   # USB 2.1 fallback
-            (640, 480, rs.format.yuyv, 15),   # USB 2.1 low-bandwidth fallback
+            (640, 480, rs.format.yuyv, 30),  # USB 2.1 fallback
+            (640, 480, rs.format.yuyv, 15),  # USB 2.1 low-bandwidth fallback
         ]
         for w, h, fmt, fps in attempts:
             try:
@@ -96,17 +95,11 @@ class CameraNode(Node):
                 cfg.enable_device(serial)
                 cfg.enable_stream(rs.stream.color, w, h, fmt, fps)
                 pipeline.start(cfg)
-                self.get_logger().info(
-                    f"[CamPub] Pipeline started for serial {serial} ({w}x{h} {fmt} {fps}fps)"
-                )
+                self.get_logger().info(f"[CamPub] Pipeline started for serial {serial} ({w}x{h} {fmt} {fps}fps)")
                 return pipeline
             except Exception as e:
-                self.get_logger().warning(
-                    f"[CamPub] serial {serial} failed with ({w}x{h} {fmt}): {e}"
-                )
-        self.get_logger().error(
-            f"[CamPub] All attempts failed for serial {serial} — publishing black frames."
-        )
+                self.get_logger().warning(f"[CamPub] serial {serial} failed with ({w}x{h} {fmt}): {e}")
+        self.get_logger().error(f"[CamPub] All attempts failed for serial {serial} — publishing black frames.")
         return None
 
     # ── per-camera background capture threads ────────────────────────────────

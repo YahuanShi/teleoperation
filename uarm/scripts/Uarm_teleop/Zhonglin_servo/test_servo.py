@@ -3,16 +3,16 @@
 test_servo.py — Zhonglin servo master arm hardware test (no ROS required).
 
 Protocol: ASCII over serial (115200 baud)
-    #IDXPRAD!  →  read current angle (response contains PXXXX, PWM 500–2500)
-    #IDXPULK!  →  unlock servo
-    #000PCSK!  →  check/ping
-    PWM → angle: (pwm - 500) / 2000 * 270  degrees
-    IDs: 000–006  (7 servos for 6 joints + gripper)
+    #IDXPRAD!  ->  read current angle (response contains PXXXX, PWM 500-2500)
+    #IDXPULK!  ->  unlock servo
+    #000PCSK!  ->  check/ping
+    PWM -> angle: (pwm - 500) / 2000 * 270  degrees
+    IDs: 000-006  (7 servos for 6 joints + gripper)
 
 Steps:
-    1. Scan IDs 0–6, report which servos respond
-    2. Calibrate zero positions from current arm pose — keep arm STILL
-    3. Print live joint angles at 50 Hz — move the arm to verify each joint
+    1. Scan IDs 0-6, report which servos respond
+    2. Calibrate zero positions from current arm pose -- keep arm STILL
+    3. Print live joint angles at 50 Hz -- move the arm to verify each joint
 
 Usage:
     python3 test_servo.py [port]
@@ -30,7 +30,7 @@ import serial
 PORT = "/dev/ttyUSB0"
 BAUDRATE = 115200
 N_SERVOS = 7
-SERVO_IDS = list(range(N_SERVOS))  # 0–6
+SERVO_IDS = list(range(N_SERVOS))  # 0-6
 
 PWM_MIN = 500
 PWM_MAX = 2500
@@ -72,7 +72,7 @@ def main():
     send(ser, "#000PVER!")  # wake up / version check
 
     # ── Step 1: Scan servos ───────────────────────────────────────────────────
-    print("\nScanning servo IDs 0–6...")
+    print("\nScanning servo IDs 0-6...")
     found = []
     for sid in SERVO_IDS:
         send(ser, "#000PCSK!")

@@ -75,10 +75,10 @@ def main():
     # ── Step 4: Move to home ─────────────────────────────────────────────────
     print(f"\n[4/4] Moving to home position: {HOME_DEG} deg")
     print("      (slow moveJ - ensure workspace is clear)")
-    
+
     user_choice = input("      Press Enter to move, or type 'Q' (then Enter) to abort: ")
-    
-    if user_choice.strip().lower() == 'q':
+
+    if user_choice.strip().lower() == "q":
         print("\n[ABORT] Operation cancelled by user. Safely exiting...")
         rtde_c.stopScript()
         sys.exit(0)

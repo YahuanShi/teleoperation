@@ -28,21 +28,21 @@ import time
 
 import serial
 
-PORT     = "/dev/ttyACM0"
+PORT = "/dev/ttyACM0"
 BAUDRATE = 9600
 
 # Status flag bit positions in B3
-FLAG_IDLE     = 0
-FLAG_OPEN     = 1
-FLAG_CLOSED   = 2
-FLAG_HOLDING  = 3
-FLAG_FAULT    = 4
-FLAG_TEMPFAULT= 5
+FLAG_IDLE = 0
+FLAG_OPEN = 1
+FLAG_CLOSED = 2
+FLAG_HOLDING = 3
+FLAG_FAULT = 4
+FLAG_TEMPFAULT = 5
 FLAG_TEMPWARN = 6
-FLAG_MAINT    = 7
+FLAG_MAINT = 7
 
 # Default positions
-OPEN_MM  = 29.5
+OPEN_MM = 29.5
 CLOSE_MM = 0.5
 
 
@@ -71,7 +71,7 @@ def read_pdin(ser: serial.Serial, timeout: float = 2.0) -> tuple[float, int] | t
                 inner = line[7:].split("]")[0]
                 parts = [int(x, 16) for x in inner.split(",")]
                 pos_mm = ((parts[0] << 8) | parts[1]) / 100.0
-                flags  = parts[3] if len(parts) >= 4 else 0
+                flags = parts[3] if len(parts) >= 4 else 0
                 return pos_mm, flags
             except Exception:
                 pass
@@ -79,7 +79,7 @@ def read_pdin(ser: serial.Serial, timeout: float = 2.0) -> tuple[float, int] | t
 
 
 def flag_str(flags: int) -> str:
-    names = ["IDLE","OPEN","CLOSED","HOLDING","FAULT","TEMPFAULT","TEMPWARN","MAINT"]
+    names = ["IDLE", "OPEN", "CLOSED", "HOLDING", "FAULT", "TEMPFAULT", "TEMPWARN", "MAINT"]
     return " | ".join(n for i, n in enumerate(names) if flags & (1 << i)) or "none"
 
 
@@ -121,11 +121,11 @@ def initialise(ser: serial.Serial) -> bool:
 
 
 def set_positions(ser: serial.Serial, open_mm: float, close_mm: float) -> None:
-    open_hex  = _pos_to_bytes(open_mm)
+    open_hex = _pos_to_bytes(open_mm)
     close_hex = _pos_to_bytes(close_mm)
-    send(ser, f"SETPARAM(96, 2, {open_hex})",  0.3)   # opening position
-    send(ser, f"SETPARAM(96, 1, {close_hex})", 0.3)   # closing position
-    send(ser, "SETPARAM(96, 3, [64])", 0.3)            # 100% force
+    send(ser, f"SETPARAM(96, 2, {open_hex})", 0.3)  # opening position
+    send(ser, f"SETPARAM(96, 1, {close_hex})", 0.3)  # closing position
+    send(ser, "SETPARAM(96, 3, [64])", 0.3)  # 100% force
 
 
 def main():
@@ -138,7 +138,7 @@ def main():
     except Exception as e:
         print(f"[FAIL] Cannot open {port}: {e}")
         sys.exit(1)
-    print(f"[OK]  Port opened.")
+    print("[OK]  Port opened.")
     time.sleep(0.5)
 
     # ── Step 1: Initialise ───────────────────────────────────────────────────
@@ -153,7 +153,7 @@ def main():
     input("      Press Enter to start, Ctrl+C to abort: ")
 
     set_positions(ser, OPEN_MM, CLOSE_MM)
-    send(ser, "PDOUT=[07,00]", 0.2)   # reference command
+    send(ser, "PDOUT=[07,00]", 0.2)  # reference command
     if not wait_for_flag(ser, FLAG_OPEN, timeout=10.0):
         # Gripper may already be open — check current flags
         pos, flags = read_pdin(ser, timeout=1.0)

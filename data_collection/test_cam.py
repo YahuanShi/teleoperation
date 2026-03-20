@@ -97,7 +97,7 @@ def main():
         cam_labels.append("cam_3 front D415")
 
     title = "Camera Test  [" + " | ".join(cam_labels) + "]  Q=quit"
-    print(f"Press 'Q' in the window to quit.\n")
+    print("Press 'Q' in the window to quit.\n")
     frame_count = 0
 
     try:
@@ -114,14 +114,21 @@ def main():
 
             for img, label, color in [
                 (img1, f"cam_1 exterior D415  frame {frame_count}", (0, 255, 0)),
-                (img2, f"cam_2 wrist D405  frame {frame_count}",    (0, 255, 255)),
+                (img2, f"cam_2 wrist D405  frame {frame_count}", (0, 255, 255)),
             ]:
                 cv2.putText(img, label, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
 
             panels = [img1, img2]
             if img3 is not None:
-                cv2.putText(img3, f"cam_3 front D415  frame {frame_count}",
-                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 200, 0), 2)
+                cv2.putText(
+                    img3,
+                    f"cam_3 front D415  frame {frame_count}",
+                    (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (255, 200, 0),
+                    2,
+                )
                 panels.append(img3)
 
             combined = np.concatenate(panels, axis=1)

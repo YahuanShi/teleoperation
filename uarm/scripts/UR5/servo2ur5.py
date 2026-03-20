@@ -44,9 +44,9 @@ GRIPPER_PORT = "/dev/ttyACM0"
 GRIPPER_BAUDRATE = 9600
 
 # CRG 30-050: 30 mm total stroke, 28 N max force
-GRIPPER_MAX_MM   = 50
-GRIPPER_OPEN_MM  = 50   # target open  position for SETPARAM / reference cycle
-GRIPPER_CLOSE_MM = 3    # target close position for SETPARAM / reference cycle
+GRIPPER_MAX_MM = 50
+GRIPPER_OPEN_MM = 50  # target open  position for SETPARAM / reference cycle
+GRIPPER_CLOSE_MM = 3  # target close position for SETPARAM / reference cycle
 
 # Gripper opens/closes as a binary device (PDOUT=[02,00] open, PDOUT=[03,00] close).
 # Threshold: if commanded width > this value → open; otherwise → close.
@@ -65,19 +65,19 @@ JOINT_MAP = [0, 1, 2, 3, 5, 4]
 JOINT_SCALE = [0.8, -1, -0.9, 1, 0.8, 0.6]
 
 # servoJ parameters — balance between responsiveness and smoothness
-# lookahead_time: 0.03–0.2 s  — higher = smoother motion, more lag
-# gain:           100–2000    — lower = softer/less jerky, less tight tracking
-SERVO_J_TIME = 0.016       # s per step (must match 1/CONTROL_HZ)
-SERVO_J_LOOKAHEAD = 0.2   # s look-ahead — servoJ's primary smoothing knob; higher = smoother
-SERVO_J_GAIN = 300          # stiffness — higher tracks more tightly
+# lookahead_time: 0.03-0.2 s  -- higher = smoother motion, more lag
+# gain:           100-2000    -- lower = softer/less jerky, less tight tracking
+SERVO_J_TIME = 0.016  # s per step (must match 1/CONTROL_HZ)
+SERVO_J_LOOKAHEAD = 0.2  # s look-ahead — servoJ's primary smoothing knob; higher = smoother
+SERVO_J_GAIN = 300  # stiffness — higher tracks more tightly
 
 # UR5 joint velocity limit (rad/s) — safety cap; set high enough that the UR5
 # can always keep up with the master so no catch-up backlog builds after a stop.
-MAX_JOINT_VEL_RAD = 0.7    # rad/s (~69 deg/s)
+MAX_JOINT_VEL_RAD = 0.7  # rad/s (~69 deg/s)
 
 # EMA smoothing applied to the joint target inside the 60 Hz control loop.
-# Bridges the gaps between 20 Hz servo updates so the arm glides instead of steps.  
-# Higher alpha = faster response but less smoothing.  Range: 0.1 (very smooth) – 1.0 (off).
+# Bridges the gaps between 20 Hz servo updates so the arm glides instead of steps.
+# Higher alpha = faster response but less smoothing.  Range: 0.1 (very smooth) - 1.0 (off).
 CMD_SMOOTH_ALPHA = 0.30
 
 
@@ -85,7 +85,7 @@ CMD_SMOOTH_ALPHA = 0.30
 # (zero-referenced, same convention as joints 0-5).
 # Move servo past GRIPPER_OPEN_DEG → open;  past GRIPPER_CLOSE_DEG → close.
 # Dead zone in between keeps current state.  Tune these to match your master arm travel.
-GRIPPER_OPEN_DEG  =  -7.0   # deg offset from home → open  (tune down if hard to trigger)
+GRIPPER_OPEN_DEG = -7.0  # deg offset from home → open  (tune down if hard to trigger)
 GRIPPER_CLOSE_DEG = -14.0  # deg offset from home → close (large negative = intentional only)
 
 CONTROL_HZ = 60  # main joint control loop rate
@@ -110,11 +110,11 @@ class WeissCRGGripper:
         ID? → FALLBACK(1) → MODE? → RESTART() → OPERATE() → PDOUT=[00,00]
     """
 
-    FLAG_IDLE    = 0
-    FLAG_OPEN    = 1
-    FLAG_CLOSED  = 2
+    FLAG_IDLE = 0
+    FLAG_OPEN = 1
+    FLAG_CLOSED = 2
     FLAG_HOLDING = 3
-    FLAG_FAULT   = 4
+    FLAG_FAULT = 4
 
     def __init__(self, port: str = GRIPPER_PORT, baudrate: int = GRIPPER_BAUDRATE, logger=None):
         self._lock = threading.Lock()
@@ -181,16 +181,16 @@ class WeissCRGGripper:
 
     def _set_positions(self) -> None:
         """Configure open/close positions and grip force (must be called before reference)."""
-        self._send(f"SETPARAM(96, 2, {self._pos_to_bytes(GRIPPER_OPEN_MM)})",  0.3)
+        self._send(f"SETPARAM(96, 2, {self._pos_to_bytes(GRIPPER_OPEN_MM)})", 0.3)
         self._send(f"SETPARAM(96, 1, {self._pos_to_bytes(GRIPPER_CLOSE_MM)})", 0.3)
-        self._send("SETPARAM(96, 3, [64])", 0.3)   # 100% grip force
+        self._send("SETPARAM(96, 3, [64])", 0.3)  # 100% grip force
 
     def _initialise(self) -> None:
         """Mandatory startup sequence before any PDOUT command."""
         for cmd in ["ID?", "ID?", "FALLBACK(1)", "MODE?"]:
             self._send(cmd, 0.5)
         self._send("RESTART()", 0.5)
-        time.sleep(1.5)          # gripper needs 1-2 s to complete internal restart
+        time.sleep(1.5)  # gripper needs 1-2 s to complete internal restart
         self._send("OPERATE()", 0.5)
         self._send("PDOUT=[00,00]", 0.5)
         self._log_info("Initialisation complete.")
@@ -228,9 +228,9 @@ class WeissCRGGripper:
     def move_to_pos(self, width_mm: float) -> bool:
         """Open (width_mm > threshold) or close the gripper."""
         if width_mm > GRIPPER_OPEN_THRESHOLD_MM:
-            self._send("PDOUT=[02,00]", 0.2)   # open
+            self._send("PDOUT=[02,00]", 0.2)  # open
         else:
-            self._send("PDOUT=[03,00]", 0.2)   # close
+            self._send("PDOUT=[03,00]", 0.2)  # close
         return True
 
     def close(self):
@@ -280,7 +280,7 @@ class UR5TeleopNode(Node):
         self._cmd_joints_rad = self.home_rad.copy()
         self._cmd_gripper_mm = GRIPPER_MAX_MM  # gripper starts open after home()
         self._last_cmd_rad = self.home_rad.copy()
-        self._smooth_rad = self.home_rad.copy()   # EMA state
+        self._smooth_rad = self.home_rad.copy()  # EMA state
         self._servo_warned = False
 
         # ── ROS 2 interfaces ──────────────────────────────────────
@@ -308,7 +308,7 @@ class UR5TeleopNode(Node):
         Returns GRIPPER_MAX_MM (open), 0.0 (close), or None (dead zone → keep state)."""
         if servo_deg > GRIPPER_OPEN_DEG:
             return GRIPPER_MAX_MM
-        elif servo_deg < GRIPPER_CLOSE_DEG:
+        if servo_deg < GRIPPER_CLOSE_DEG:
             return 0.0
         return None  # dead zone — keep current state
 
