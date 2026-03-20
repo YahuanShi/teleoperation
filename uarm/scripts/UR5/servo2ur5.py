@@ -44,9 +44,7 @@ GRIPPER_PORT = "/dev/ttyACM0"
 GRIPPER_BAUDRATE = 9600
 
 # CRG 30-050: 30 mm total stroke, 28 N max force
-GRIPPER_MAX_MM   = 50
-GRIPPER_OPEN_MM  = 50   # target open  position for SETPARAM / reference cycle
-GRIPPER_CLOSE_MM = 3    # target close position for SETPARAM / reference cycle
+GRIPPER_MAX_MM = 30.0
 
 # Gripper opens/closes as a binary device (PDOUT=[02,00] open, PDOUT=[03,00] close).
 # Threshold: if commanded width > this value → open; otherwise → close.
@@ -110,7 +108,6 @@ class WeissCRGGripper:
         ID? → FALLBACK(1) → MODE? → RESTART() → OPERATE() → PDOUT=[00,00]
     """
 
-    FLAG_IDLE    = 0
     FLAG_OPEN    = 1
     FLAG_CLOSED  = 2
     FLAG_HOLDING = 3
@@ -174,24 +171,10 @@ class WeissCRGGripper:
                 return True
         return False
 
-    @staticmethod
-    def _pos_to_bytes(mm: float) -> str:
-        val = int(mm * 100)
-        return f"[{(val >> 8) & 0xFF:02x},{val & 0xFF:02x}]"
-
-    def _set_positions(self) -> None:
-        """Configure open/close positions and grip force (must be called before reference)."""
-        self._send(f"SETPARAM(96, 2, {self._pos_to_bytes(GRIPPER_OPEN_MM)})",  0.3)
-        self._send(f"SETPARAM(96, 1, {self._pos_to_bytes(GRIPPER_CLOSE_MM)})", 0.3)
-        self._send("SETPARAM(96, 3, [64])", 0.3)   # 100% grip force
-
     def _initialise(self) -> None:
         """Mandatory startup sequence before any PDOUT command."""
-        for cmd in ["ID?", "ID?", "FALLBACK(1)", "MODE?"]:
+        for cmd in ["ID?", "ID?", "FALLBACK(1)", "MODE?", "RESTART()", "OPERATE()"]:
             self._send(cmd, 0.5)
-        self._send("RESTART()", 0.5)
-        time.sleep(1.5)          # gripper needs 1-2 s to complete internal restart
-        self._send("OPERATE()", 0.5)
         self._send("PDOUT=[00,00]", 0.5)
         self._log_info("Initialisation complete.")
 
@@ -199,30 +182,12 @@ class WeissCRGGripper:
         self._read_pdin(timeout=0.5)
         return self._position_mm
 
-    def _wait_flag_any(self, flag_bits: int, timeout: float = 15.0) -> bool:
-        """Wait until any of the given flag bits (bitmask) is set."""
-        t0 = time.monotonic()
-        while time.monotonic() - t0 < timeout:
-            if self._read_pdin(0.5) and (self._flags & flag_bits):
-                return True
-        return False
-
     def home(self) -> bool:
         """Reference cycle: closes then opens fully."""
-        self._log_info("Homing (reference cycle) — setting positions first...")
-        self._set_positions()
+        self._log_info("Homing (reference cycle)...")
         self._send("PDOUT=[07,00]", 0.2)
-        # Gripper reports IDLE or OPEN when reference is done (hardware-dependent).
-        done_mask = (1 << self.FLAG_OPEN) | (1 << self.FLAG_IDLE)
-        ok = self._wait_flag_any(done_mask, timeout=15.0)
-        if not ok:
-            self._read_pdin(timeout=1.0)
-            self._log_warn(f"Homing timed out — final flags=0x{self._flags:02x}")
-            return False
-        if self._flags & (1 << self.FLAG_FAULT):
-            self._log_warn("FAULT flag set after homing!")
-            return False
-        self._log_info(f"Homing done — flags=0x{self._flags:02x}")
+        self._wait_flag(self.FLAG_OPEN, timeout=10.0)
+        self._log_info("Homing done, gripper open.")
         return True
 
     def move_to_pos(self, width_mm: float) -> bool:
@@ -264,10 +229,8 @@ class UR5TeleopNode(Node):
         self.get_logger().info(f"[UR5Teleop] (3/4) Initialising gripper on {GRIPPER_PORT} (takes ~5 s)...")
         self.gripper = WeissCRGGripper(GRIPPER_PORT, GRIPPER_BAUDRATE, logger=self.get_logger())
         self.get_logger().info("[UR5Teleop] Gripper init done. Running home cycle (takes ~10 s)...")
-        if not self.gripper.home():
-            self.get_logger().warning("[UR5Teleop] Gripper homing failed — check LED and cable.")
-        else:
-            self.get_logger().info("[UR5Teleop] Gripper homed.")
+        self.gripper.home()
+        self.get_logger().info("[UR5Teleop] Gripper homed.")
 
         # ── UR5 home position ─────────────────────────────────────
         self.home_rad = np.radians(UR5_HOME_DEG)
