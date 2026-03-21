@@ -297,8 +297,8 @@ def save_episode_hdf5(episode: dict, path: str, prompt: str, task: str, hz: floa
     cam1 = np.stack(episode["cam1_rgb"])
     cam2 = np.stack(episode["cam2_rgb"])
     cam3 = np.stack(episode["cam3_rgb"]) if "cam3_rgb" in episode else None
-    qpos = np.stack(episode["state"])
-    action = np.stack(episode["action"])
+    qpos = np.round(np.stack(episode["state"]), 2)
+    action = np.round(np.stack(episode["action"]), 2)
 
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
 
