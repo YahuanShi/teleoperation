@@ -541,6 +541,8 @@ def run(args) -> None:
     step_ts: list[float] = []
     prompt: str = ""
     last_step_t: float = 0.0
+    last_preview_t: float = 0.0
+    PREVIEW_HZ: float = 15.0  # preview renders at 15 Hz; recording runs at full hz
 
     def reset_buf():
         nonlocal episode_buf, step_ts, last_step_t
@@ -555,10 +557,15 @@ def run(args) -> None:
     # ── main loop ─────────────────────────────────────────────────────────────
     try:
         while rclpy.ok():
-            cam_frames = buf.get_preview_frames()
-            frame = build_preview(cam_frames, rec_state, len(step_ts), buf.avg_hz(), prompt, episode_idx)
-            cv2.imshow(win, frame)
-            cv_key = cv2.waitKey(10) & 0xFF
+            # Preview renders at PREVIEW_HZ (15 Hz) — decoupled from recording rate.
+            # waitKey(1) keeps the loop tight so recording hits the full target Hz.
+            now_loop = time.time()
+            cv_key = cv2.waitKey(1) & 0xFF
+            if now_loop - last_preview_t >= 1.0 / PREVIEW_HZ:
+                cam_frames = buf.get_preview_frames()
+                frame = build_preview(cam_frames, rec_state, len(step_ts), buf.avg_hz(), prompt, episode_idx)
+                cv2.imshow(win, frame)
+                last_preview_t = now_loop
 
             # Merge cv2 key (OpenCV window focus) with pynput global key.
             key_char: str | None = None
