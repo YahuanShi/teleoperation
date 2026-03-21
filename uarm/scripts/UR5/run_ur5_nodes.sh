@@ -75,7 +75,7 @@ echo "[INFO] episode_recorder.py  → PID $PID_REC"
 # ── Cleanup on Ctrl+C ────────────────────────────────────────────────────────
 trap "echo '';
       echo '[INFO] Ctrl+C — shutting down all nodes...';
-      kill $PID_CAM $PID_STATE $PID_SERVO $PID_TELEOP $PID_REC $PID_VIZ 2>/dev/null;
+      kill $PID_CAM $PID_STATE $PID_SERVO $PID_TELEOP $PID_REC 2>/dev/null;
       exit 0" SIGINT SIGTERM
 
 echo ""

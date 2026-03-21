@@ -3,8 +3,9 @@
 Episode Recorder
 ======================
 
-Subscribes to Uarm / UR5 teleoperation ROS topics and records demonstration
-episodes in HDF5 format directly compatible with openpi / LeRobot training.
+General-purpose teleoperation episode recorder.  Subscribes to ROS 2 topics
+published by any robot teleoperation stack and records demonstration episodes
+in HDF5 format compatible with openpi / LeRobot training (including pi0.5).
 
 Topics consumed:
     /cam_1         sensor_msgs/Image       → exterior camera        [required]
@@ -18,9 +19,9 @@ the recorder runs in 3-camera mode; otherwise 2-camera mode (exterior + wrist on
 The wrist (cam_2) and exterior (cam_1) cameras are always required.
 
 HDF5 layout written per episode (aloha-compatible, pi0.5 ready):
-    /observations/images/exterior_image_1_left  (T, 224, 224, 3) uint8  RGB
-    /observations/images/wrist_image_left        (T, 224, 224, 3) uint8  RGB
-    /observations/images/front_image_1           (T, 224, 224, 3) uint8  RGB  [3-cam mode only]
+    /observations/images/exterior_image_1_left  (T, 480, 480, 3) uint8  RGB
+    /observations/images/wrist_image_left        (T, 480, 480, 3) uint8  RGB
+    /observations/images/front_image_1           (T, 480, 480, 3) uint8  RGB  [3-cam mode only]
     /observations/qpos                           (T, 7) float64
     /action                                      (T, 7) float64
     root.attrs: sim, prompt, task, hz, timestamp, n_steps, num_cameras
@@ -35,7 +36,7 @@ Keyboard shortcuts (focus the OpenCV preview window):
 Usage:
     python3 episode_recorder.py
     python3 episode_recorder.py --task pick_place
-    python3 episode_recorder.py --task pick_place --data-dir ~/my_data --hz 20
+    python3 episode_recorder.py --task pick_place --data-dir ~/my_data --hz 30
     python3 episode_recorder.py --task pick_place --episode-idx 5
 """
 
@@ -87,7 +88,7 @@ TASK_CONFIGS: dict = {
     "default": {
         "dataset_dir": os.path.join(_OPENPI_ROOT, "dataset", f"ur5_dataset_{_TODAY}"),
         "episode_len": 100000,
-        "hz": 10,
+        "hz": 30,
     },
     # "pick_place": {
     #     "dataset_dir": os.path.join(_OPENPI_ROOT, "dataset", f"ur5_pick_place_{_TODAY}"),
@@ -96,8 +97,8 @@ TASK_CONFIGS: dict = {
     # },
 }
 
-IMAGE_H, IMAGE_W = 224, 224
-PREVIEW_H, PREVIEW_W = 480, 640  # per-camera frame size
+IMAGE_H, IMAGE_W = 480, 480
+PREVIEW_H, PREVIEW_W = 480, 480  # per-camera frame size
 HEADER_H = 28  # camera label strip above images
 STATUS_H = 88  # info panel below images
 
@@ -154,12 +155,12 @@ class DataBuffer:
         self._state: np.ndarray | None = None
         self._action: np.ndarray | None = None
 
-        self._step_ts: deque = deque(maxlen=200)
+        self._step_ts: deque = deque(maxlen=300)
         self._last_warn: dict[str, float] = {}
 
-        node.create_subscription(Image, "/cam_1", self._cb_cam1, 10)
-        node.create_subscription(Image, "/cam_2", self._cb_cam2, 10)
-        node.create_subscription(Image, "/cam_3", self._cb_cam3, 10)
+        node.create_subscription(Image, "/cam_1", self._cb_cam1, 2)
+        node.create_subscription(Image, "/cam_2", self._cb_cam2, 2)
+        node.create_subscription(Image, "/cam_3", self._cb_cam3, 2)
         node.create_subscription(Float64MultiArray, "/robot_state", self._cb_state, 10)
         node.create_subscription(Float64MultiArray, "/robot_action", self._cb_action, 10)
 
@@ -302,7 +303,7 @@ def save_episode_hdf5(episode: dict, path: str, prompt: str, task: str, hz: floa
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
 
     t0 = time.time()
-    with h5py.File(path, "w", rdcc_nbytes=1024**2 * 4) as root:
+    with h5py.File(path, "w", rdcc_nbytes=1024**2 * 32) as root:
         root.attrs["sim"] = False
         root.attrs["prompt"] = prompt
         root.attrs["task"] = task
@@ -407,6 +408,13 @@ def build_preview(cam_frames: list, rec_state, n_steps, avg_hz, prompt, episode_
         f = cv2.resize(img, (W, H))
         if recording:
             cv2.rectangle(f, (0, 0), (W - 1, H - 1), _ACCENT_R, 2)
+        # 224×224 center-crop guide — shows what a 224-px crop of the stored image looks like
+        _CROP_SIZE = 224
+        cx, cy = W // 2, H // 2
+        half = _CROP_SIZE // 2
+        x0, y0, x1, y1 = cx - half, cy - half, cx + half - 1, cy + half - 1
+        cv2.rectangle(f, (x0, y0), (x1, y1), (0, 0, 220), 1)
+        cv2.putText(f, "224", (x0 + 3, y0 + 14), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (0, 0, 220), 1, cv2.LINE_AA)
         return f
 
     prepped = [prep(f) for f in cam_frames]

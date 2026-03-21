@@ -50,7 +50,7 @@ sudo apt install ros-humble-desktop \
 ```bash
 python3 -m venv teleop
 source teleop/bin/activate
-pip install -r uarm/requirements.txt
+pip install -r requirements.txt
 ```
 
 **3 — Build the ROS 2 package**
@@ -190,11 +190,10 @@ attrs: sim, prompt, task, hz, n_steps, timestamp, num_cameras
 teleoperation/
 ├── install.sh                         # One-shot setup for a new PC
 ├── .envrc                             # direnv: auto-activates ROS 2 + venv on cd
-├── .venv/                             # Python venv (created by install.sh, git-ignored)
+├── teleop/                            # Python venv (created by install.sh, git-ignored)
 ├── data_collection/                   # Robot-agnostic data tools
 │   ├── episode_recorder.py            # HDF5 dataset recorder (pi0.5 format)
 │   ├── cam_pub.py                     # Adaptive RealSense camera publisher (2 or 3 cams)
-│   ├── visualize_episode.py           # Live viewer during recording (ROS 2 subscriber)
 │   ├── replay_episode.py              # Offline HDF5 episode viewer (no ROS, 2/3-cam aware)
 │   └── test_cam.py                    # Camera hardware sanity check (auto-detects all cams)
 │

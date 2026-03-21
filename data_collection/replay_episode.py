@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 """
-Replay a recorded UR5 HDF5 episode - offline viewer, no ROS required.
+Replay a recorded HDF5 episode - offline viewer, no ROS required.
+
+Works with any episode recorded by episode_recorder.py regardless of robot
+or image resolution.  Image dimensions and recording Hz are read from the file.
 
 Usage:
     # Play a specific episode file:
     python3 teleoperation/data_collection/replay_episode.py path/to/episode_0.hdf5
 
     # Pick episode from a dataset directory (defaults to episode 0):
-    python3 teleoperation/data_collection/replay_episode.py path/to/ur5_dataset_20260227/
+    python3 teleoperation/data_collection/replay_episode.py path/to/dataset_20260227/
 
     # Pick a specific episode index from a directory:
-    python3 teleoperation/data_collection/replay_episode.py path/to/ur5_dataset_20260227/ -e 3
+    python3 teleoperation/data_collection/replay_episode.py path/to/dataset_20260227/ -e 3
 
 Controls (focus the OpenCV window):
     Space        Pause / resume
@@ -31,7 +34,7 @@ import h5py
 import numpy as np
 
 # ── Display constants ─────────────────────────────────────────────────────────
-_SCALE = 2  # scale factor applied to each 224x224 camera image -> 448x448
+_SCALE = 1  # display scale factor applied to each camera image (1 = native stored resolution)
 _INFO_H = 168  # height of the text info panel below cameras
 _PAD = 8  # pixel gap between panels
 
@@ -50,8 +53,8 @@ def load_episode(hdf5_path: Path) -> dict:
         ep = {
             "qpos": f["/observations/qpos"][:],  # (T,7) deg
             "action": f["/action"][:],  # (T,7) deg
-            "ext": f["/observations/images/exterior_image_1_left"][:],  # (T,224,224,3) RGB
-            "wrist": f["/observations/images/wrist_image_left"][:],  # (T,224,224,3) RGB
+            "ext": f["/observations/images/exterior_image_1_left"][:],  # (T,H,W,3) RGB
+            "wrist": f["/observations/images/wrist_image_left"][:],  # (T,H,W,3) RGB
             "prompt": str(f.attrs.get("prompt", "")),
             "hz": float(f.attrs.get("hz", 15)),
         }
@@ -151,7 +154,7 @@ def build_frame(
     cam_panels = [pad_v]
     for key, label in panels_info:
         bgr = cv2.cvtColor(ep[key][t], cv2.COLOR_RGB2BGR)
-        big = cv2.resize(bgr, (w_disp, h_disp), interpolation=cv2.INTER_NEAREST)
+        big = cv2.resize(bgr, (w_disp, h_disp), interpolation=cv2.INTER_LINEAR)
         _put(big, label, (8, 26), scale=0.7, color=_YELLOW, thickness=2)
         cam_panels.append(big)
         cam_panels.append(pad_v)
@@ -187,9 +190,9 @@ def replay(hdf5_path: Path) -> None:
     print(f"  Hz     : {ep['hz']:.1f}")
     print(f"  Prompt : {ep['prompt'] or '(none)'}")
 
-    h_orig, w_orig = ep["ext"].shape[1:3]  # 224, 224
-    h_disp = h_orig * _SCALE  # 448
-    w_disp = w_orig * _SCALE  # 448
+    h_orig, w_orig = ep["ext"].shape[1:3]
+    h_disp = h_orig * _SCALE
+    w_disp = w_orig * _SCALE
     num_cams = 3 if "front" in ep else 2
     win_w = w_disp * num_cams + _PAD * (num_cams + 1)
     win_h = h_disp + _INFO_H + _PAD
@@ -243,7 +246,7 @@ def replay(hdf5_path: Path) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="Replay a recorded UR5 HDF5 episode (offline, no ROS required)",
+        description="Replay a recorded HDF5 episode (offline, no ROS required)",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument(
