@@ -82,11 +82,11 @@ except Exception:
 # Resolve openpi project root: this script lives at
 #   <openpi_root>/teleoperation/data_collection/episode_recorder.py
 _OPENPI_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
-_TODAY = datetime.datetime.now(tz=datetime.UTC).date().strftime("%Y%m%d")
+_TODAY = datetime.datetime.now(tz=datetime.timezone.utc).date().strftime("%Y%m%d")
 
 TASK_CONFIGS: dict = {
     "default": {
-        "dataset_dir": os.path.join(_OPENPI_ROOT, "dataset", f"ur5_dataset_{_TODAY}"),
+        "dataset_dir": os.path.join(_OPENPI_ROOT, "dataset", f"ur5_dataset_{_TODAY}_v2"),
         "episode_len": 100000,
         "hz": 30,
     },
@@ -276,6 +276,10 @@ class DataBuffer:
                 c3 = self._cam3_bgr.copy() if self._cam3_bgr is not None else None
                 frames.append(c3)
         return frames
+
+    def reset_hz_counter(self) -> None:
+        """Clear the step-timestamp history so avg_hz() starts fresh for a new episode."""
+        self._step_ts.clear()
 
     def avg_hz(self) -> float:
         ts = list(self._step_ts)
@@ -557,10 +561,40 @@ def run(args) -> None:
     # ── main loop ─────────────────────────────────────────────────────────────
     try:
         while rclpy.ok():
-            # Preview renders at PREVIEW_HZ (15 Hz) — decoupled from recording rate.
+            # Recording step runs FIRST — before preview render — so that the
+            # ~30-50 ms render block does not delay the next recording tick.
             # waitKey(1) keeps the loop tight so recording hits the full target Hz.
             now_loop = time.time()
             cv_key = cv2.waitKey(1) & 0xFF
+
+            # ── recording step (rate-limited to hz) — highest priority ────────
+            if rec_state == RECORDING:
+                now = time.time()
+                if now - last_step_t >= dt:
+                    snap = buf.get_snapshot()
+                    if snap is not None:
+                        episode_buf["cam1_rgb"].append(preprocess_image(snap["cam1_rgb"]))
+                        episode_buf["cam2_rgb"].append(preprocess_image(snap["cam2_rgb"]))
+                        if buf.has_front_camera:
+                            episode_buf["cam3_rgb"].append(preprocess_image(snap["cam3_rgb"]))
+                        episode_buf["state"].append(snap["state"])
+                        episode_buf["action"].append(snap["action"])
+                        step_ts.append(now)
+                        last_step_t += dt  # accumulate to avoid drift
+
+                        if len(step_ts) >= max_steps:
+                            rec_state = WAITING
+                            path = os.path.join(dataset_dir, f"episode_{episode_idx}.hdf5")
+                            save_episode_hdf5(episode_buf, path, prompt, args.task, hz)
+                            print_dt_diagnosis(step_ts, hz)
+                            node.get_logger().info(
+                                f"[Recorder] Max steps reached — episode {episode_idx} auto-saved."
+                            )
+                            episode_idx += 1
+                            reset_buf()
+                            buf.reset_hz_counter()
+
+            # Preview renders at PREVIEW_HZ (15 Hz) — lower priority than recording.
             if now_loop - last_preview_t >= 1.0 / PREVIEW_HZ:
                 cam_frames = buf.get_preview_frames()
                 frame = build_preview(cam_frames, rec_state, len(step_ts), buf.avg_hz(), prompt, episode_idx)
@@ -635,6 +669,7 @@ def run(args) -> None:
                     print("  ⚠️  Press [P] to set a task prompt before recording.")
                 else:
                     reset_buf()
+                    buf.reset_hz_counter()
                     last_step_t = time.time()
                     rec_state = RECORDING
                     _pub_rec(True)
@@ -668,30 +703,6 @@ def run(args) -> None:
                 with contextlib.suppress(Exception):
                     os.killpg(os.getpgrp(), signal.SIGTERM)
                 break
-
-            # ── recording step (rate-limited to hz) ───────────────────────────
-            if rec_state == RECORDING:
-                now = time.time()
-                if now - last_step_t >= dt:
-                    snap = buf.get_snapshot()
-                    if snap is not None:
-                        episode_buf["cam1_rgb"].append(preprocess_image(snap["cam1_rgb"]))
-                        episode_buf["cam2_rgb"].append(preprocess_image(snap["cam2_rgb"]))
-                        if buf.has_front_camera:
-                            episode_buf["cam3_rgb"].append(preprocess_image(snap["cam3_rgb"]))
-                        episode_buf["state"].append(snap["state"])
-                        episode_buf["action"].append(snap["action"])
-                        step_ts.append(now)
-                        last_step_t = now
-
-                        if len(step_ts) >= max_steps:
-                            rec_state = WAITING
-                            path = os.path.join(dataset_dir, f"episode_{episode_idx}.hdf5")
-                            node.get_logger().info(f"[Recorder] Max steps ({max_steps}) reached — auto-saving …")
-                            save_episode_hdf5(episode_buf, path, prompt, args.task, hz)
-                            print_dt_diagnosis(step_ts, hz)
-                            episode_idx += 1
-                            reset_buf()
 
     finally:
         cv2.destroyAllWindows()
