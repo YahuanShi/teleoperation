@@ -408,7 +408,7 @@ def build_preview(cam_frames: list, rec_state, n_steps, avg_hz, prompt, episode_
         f = cv2.resize(img, (W, H))
         if recording:
             cv2.rectangle(f, (0, 0), (W - 1, H - 1), _ACCENT_R, 2)
-        # 224×224 center-crop guide — shows what a 224-px crop of the stored image looks like
+        # 224x224 center-crop guide -- shows what a 224-px crop of the stored image looks like
         _CROP_SIZE = 224
         cx, cy = W // 2, H // 2
         half = _CROP_SIZE // 2
