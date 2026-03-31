@@ -62,7 +62,7 @@ UR5_HOME_DEG = [45.0, -20.0, -140.0, -40.0, -270.0, 0.0]
 JOINT_MAP = [0, 1, 2, 3, 5, 4]
 
 # Per-joint scale factors (sign correction) applied after reordering.
-JOINT_SCALE = [0.8, -1, -0.9, 1, 0.8, 0.6]
+JOINT_SCALE = [0.8, -1, -0.9, 1, 1, 0.6]
 
 # servoJ parameters — balance between responsiveness and smoothness
 # lookahead_time: 0.03-0.2 s  -- higher = smoother motion, more lag

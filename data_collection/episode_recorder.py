@@ -86,9 +86,9 @@ _TODAY = datetime.datetime.now(tz=datetime.timezone.utc).date().strftime("%Y%m%d
 
 TASK_CONFIGS: dict = {
     "default": {
-        "dataset_dir": os.path.join(_OPENPI_ROOT, "dataset", f"ur5_dataset_{_TODAY}_v2"),
+        "dataset_dir": os.path.join(_OPENPI_ROOT, "dataset", f"ur5_dataset_{_TODAY}"),
         "episode_len": 100000,
-        "hz": 30,
+        "hz": 16,
     },
     # "pick_place": {
     #     "dataset_dir": os.path.join(_OPENPI_ROOT, "dataset", f"ur5_pick_place_{_TODAY}"),
@@ -97,8 +97,8 @@ TASK_CONFIGS: dict = {
     # },
 }
 
-IMAGE_H, IMAGE_W = 480, 480
-PREVIEW_H, PREVIEW_W = 480, 480  # per-camera frame size
+IMAGE_H, IMAGE_W = 224, 224
+PREVIEW_H, PREVIEW_W = 224, 224  # per-camera frame size
 HEADER_H = 28  # camera label strip above images
 STATUS_H = 88  # info panel below images
 
