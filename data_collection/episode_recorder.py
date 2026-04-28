@@ -12,17 +12,19 @@ Topics consumed:
     /cam_2         sensor_msgs/Image       → wrist / gripper camera [required]
     /cam_3         sensor_msgs/Image       → front camera           [optional — auto-detected]
     /robot_state   Float64MultiArray (7,)  → actual joints [deg x6] + gripper [0-1]
+    /robot_vel     Float64MultiArray (7,)  → actual joint velocities [deg/s x6] + 0.0 placeholder
     /robot_action  Float64MultiArray (7,)  → commanded action (same layout)
 
 Camera count is auto-detected at startup: if /cam_3 messages arrive within 5 s,
 the recorder runs in 3-camera mode; otherwise 2-camera mode (exterior + wrist only).
 The wrist (cam_2) and exterior (cam_1) cameras are always required.
 
-HDF5 layout written per episode (aloha-compatible, pi0.5 ready):
+HDF5 layout written per episode (aloha-compatible, pi0.5/ACT ready):
     /observations/images/exterior_image_1_left  (T, 480, 480, 3) uint8  RGB
     /observations/images/wrist_image_left        (T, 480, 480, 3) uint8  RGB
     /observations/images/front_image_1           (T, 480, 480, 3) uint8  RGB  [3-cam mode only]
-    /observations/qpos                           (T, 7) float64
+    /observations/qpos                           (T, 7) float64  [joints deg x6 + gripper 0-1]
+    /observations/qvel                           (T, 7) float64  [joint vel deg/s x6 + 0.0]
     /action                                      (T, 7) float64
     root.attrs: sim, prompt, task, hz, timestamp, n_steps, num_cameras
 
@@ -82,13 +84,13 @@ except Exception:
 # Resolve openpi project root: this script lives at
 #   <openpi_root>/teleoperation/data_collection/episode_recorder.py
 _OPENPI_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
-_TODAY = datetime.datetime.now(tz=datetime.timezone.utc).date().strftime("%Y%m%d")
+_TODAY = datetime.datetime.now(tz=datetime.UTC).date().strftime("%Y%m%d")
 
 TASK_CONFIGS: dict = {
     "default": {
         "dataset_dir": os.path.join(_OPENPI_ROOT, "dataset", f"ur5_dataset_{_TODAY}"),
         "episode_len": 100000,
-        "hz": 20,
+        "hz": 10,
     },
     # "pick_place": {
     #     "dataset_dir": os.path.join(_OPENPI_ROOT, "dataset", f"ur5_pick_place_{_TODAY}"),
@@ -97,8 +99,8 @@ TASK_CONFIGS: dict = {
     # },
 }
 
-IMAGE_H, IMAGE_W = 224,224
-PREVIEW_H, PREVIEW_W = 224, 224  # per-camera frame size
+IMAGE_H, IMAGE_W = 480, 480
+PREVIEW_H, PREVIEW_W = 480, 480  # per-camera frame size
 HEADER_H = 28  # camera label strip above images
 STATUS_H = 88  # info panel below images
 
@@ -153,6 +155,7 @@ class DataBuffer:
         self._cam2_bgr: np.ndarray | None = None
         self._cam3_bgr: np.ndarray | None = None
         self._state: np.ndarray | None = None
+        self._vel: np.ndarray | None = None
         self._action: np.ndarray | None = None
 
         self._step_ts: deque = deque(maxlen=300)
@@ -162,10 +165,13 @@ class DataBuffer:
         node.create_subscription(Image, "/cam_2", self._cb_cam2, 2)
         node.create_subscription(Image, "/cam_3", self._cb_cam3, 2)
         node.create_subscription(Float64MultiArray, "/robot_state", self._cb_state, 10)
+        node.create_subscription(Float64MultiArray, "/robot_vel", self._cb_vel, 10)
         node.create_subscription(Float64MultiArray, "/robot_action", self._cb_action, 10)
 
-        # ── Wait for the required topics (cam1, cam2, state, action) ─────────
-        node.get_logger().info("[Recorder] Waiting for required topics (cam_1, cam_2, robot_state, robot_action) …")
+        # ── Wait for the required topics (cam1, cam2, state, vel, action) ────
+        node.get_logger().info(
+            "[Recorder] Waiting for required topics (cam_1, cam_2, robot_state, robot_vel, robot_action) …"
+        )
         deadline = time.time() + 30.0
         while not self._core_ready():
             if not rclpy.ok():
@@ -230,6 +236,10 @@ class DataBuffer:
         with self._lock:
             self._state = np.array(msg.data, dtype=np.float64)
 
+    def _cb_vel(self, msg: Float64MultiArray):
+        with self._lock:
+            self._vel = np.array(msg.data, dtype=np.float64)
+
     def _cb_action(self, msg: Float64MultiArray):
         with self._lock:
             self._action = np.array(msg.data, dtype=np.float64)
@@ -238,11 +248,11 @@ class DataBuffer:
 
     def _core_ready(self) -> bool:
         with self._lock:
-            return all(x is not None for x in [self._cam1_bgr, self._cam2_bgr, self._state, self._action])
+            return all(x is not None for x in [self._cam1_bgr, self._cam2_bgr, self._state, self._vel, self._action])
 
     def is_ready(self) -> bool:
         with self._lock:
-            core = all(x is not None for x in [self._cam1_bgr, self._cam2_bgr, self._state, self._action])
+            core = all(x is not None for x in [self._cam1_bgr, self._cam2_bgr, self._state, self._vel, self._action])
             if self.has_front_camera:
                 return core and self._cam3_bgr is not None
             return core
@@ -250,7 +260,7 @@ class DataBuffer:
     def get_snapshot(self) -> dict | None:
         with self._lock:
             # Inline check — do NOT call is_ready() here (it also acquires _lock → deadlock)
-            required = [self._cam1_bgr, self._cam2_bgr, self._state, self._action]
+            required = [self._cam1_bgr, self._cam2_bgr, self._state, self._vel, self._action]
             if self.has_front_camera:
                 required.append(self._cam3_bgr)
             if any(x is None for x in required):
@@ -259,6 +269,7 @@ class DataBuffer:
                 "cam1_rgb": cv2.cvtColor(self._cam1_bgr, cv2.COLOR_BGR2RGB),
                 "cam2_rgb": cv2.cvtColor(self._cam2_bgr, cv2.COLOR_BGR2RGB),
                 "state": self._state.copy(),
+                "vel": self._vel.copy(),
                 "action": self._action.copy(),
             }
             if self.has_front_camera:
@@ -302,6 +313,7 @@ def save_episode_hdf5(episode: dict, path: str, prompt: str, task: str, hz: floa
     cam2 = np.stack(episode["cam2_rgb"])
     cam3 = np.stack(episode["cam3_rgb"]) if "cam3_rgb" in episode else None
     qpos = np.round(np.stack(episode["state"]), 2)
+    qvel = np.round(np.stack(episode["vel"]), 4)
     action = np.round(np.stack(episode["action"]), 2)
 
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
@@ -324,6 +336,7 @@ def save_episode_hdf5(episode: dict, path: str, prompt: str, task: str, hz: floa
         if cam3 is not None:
             imgs.create_dataset("front_image_1", data=cam3, dtype="uint8", chunks=chunk, compression="lzf")
         obs.create_dataset("qpos", data=qpos, dtype="float64", compression="gzip", compression_opts=4)
+        obs.create_dataset("qvel", data=qvel, dtype="float64", compression="gzip", compression_opts=4)
         root.create_dataset("action", data=action, dtype="float64", compression="gzip", compression_opts=4)
 
     cams_str = "3 cameras" if cam3 is not None else "2 cameras"
@@ -409,7 +422,10 @@ def build_preview(cam_frames: list, rec_state, n_steps, avg_hz, prompt, episode_
             f = np.full((H, W, 3), _BG_CAM[0], dtype=np.uint8)
             _txt(f, "NO SIGNAL", W // 2 - 62, H // 2 + 6, _FMD, _HINT)
             return f
-        f = cv2.resize(img, (W, H))
+        h_img, w_img = img.shape[:2]
+        side = min(h_img, w_img)
+        y0c, x0c = (h_img - side) // 2, (w_img - side) // 2
+        f = cv2.resize(img[y0c : y0c + side, x0c : x0c + side], (W, H), interpolation=cv2.INTER_AREA)
         if recording:
             cv2.rectangle(f, (0, 0), (W - 1, H - 1), _ACCENT_R, 2)
         # 224x224 center-crop guide -- shows what a 224-px crop of the stored image looks like
@@ -550,7 +566,7 @@ def run(args) -> None:
 
     def reset_buf():
         nonlocal episode_buf, step_ts, last_step_t
-        episode_buf = {"cam1_rgb": [], "cam2_rgb": [], "state": [], "action": []}
+        episode_buf = {"cam1_rgb": [], "cam2_rgb": [], "state": [], "vel": [], "action": []}
         if buf.has_front_camera:
             episode_buf["cam3_rgb"] = []
         step_ts = []
@@ -578,6 +594,7 @@ def run(args) -> None:
                         if buf.has_front_camera:
                             episode_buf["cam3_rgb"].append(preprocess_image(snap["cam3_rgb"]))
                         episode_buf["state"].append(snap["state"])
+                        episode_buf["vel"].append(snap["vel"])
                         episode_buf["action"].append(snap["action"])
                         step_ts.append(now)
                         last_step_t += dt  # accumulate to avoid drift
@@ -587,9 +604,7 @@ def run(args) -> None:
                             path = os.path.join(dataset_dir, f"episode_{episode_idx}.hdf5")
                             save_episode_hdf5(episode_buf, path, prompt, args.task, hz)
                             print_dt_diagnosis(step_ts, hz)
-                            node.get_logger().info(
-                                f"[Recorder] Max steps reached — episode {episode_idx} auto-saved."
-                            )
+                            node.get_logger().info(f"[Recorder] Max steps reached — episode {episode_idx} auto-saved.")
                             episode_idx += 1
                             reset_buf()
                             buf.reset_hz_counter()

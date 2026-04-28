@@ -2,9 +2,12 @@
 """
 UR5 State Publisher
 
-Published topic:
+Published topics:
     /robot_state  (Float64MultiArray, 7 floats:
                    joints 0-5 in degrees (actual) + gripper width 0-1 normalised)
+    /robot_vel    (Float64MultiArray, 7 floats:
+                   joints 0-5 velocity in deg/s (actual, from RTDE getActualQd)
+                   + index 6 = 0.0 placeholder (gripper has no velocity sensor))
 
 Gripper state is derived from the /robot_action topic published by servo2ur5.py.
 This avoids opening /dev/ttyACM0 a second time (servo2ur5.py already owns it).
@@ -57,11 +60,12 @@ class UR5StatePublisher(Node):
         self._action_lock = threading.Lock()
         self.create_subscription(Float64MultiArray, "/robot_action", self._cb_action, 10)
 
-        # ── ROS 2 publisher + timer ───────────────────────────────
+        # ── ROS 2 publishers + timer ──────────────────────────────
         self._pub = self.create_publisher(Float64MultiArray, "/robot_state", 10)
+        self._vel_pub = self.create_publisher(Float64MultiArray, "/robot_vel", 10)
         self.create_timer(1.0 / PUBLISH_HZ, self._publish_state)
 
-        self.get_logger().info(f"[UR5Pub] Publishing /robot_state at {PUBLISH_HZ} Hz.")
+        self.get_logger().info(f"[UR5Pub] Publishing /robot_state and /robot_vel at {PUBLISH_HZ} Hz.")
 
     def _cb_action(self, msg: Float64MultiArray):
         """Cache the commanded gripper value from servo2ur5.py."""
@@ -72,16 +76,22 @@ class UR5StatePublisher(Node):
     def _publish_state(self):
         try:
             q_rad = self.rtde_r.getActualQ()
+            qd_rad = self.rtde_r.getActualQd()
             q_deg = np.degrees(q_rad).tolist()
+            qd_deg = np.degrees(qd_rad).tolist()
 
             with self._action_lock:
                 grip_norm = self._gripper_norm
 
-            state = [*q_deg, grip_norm]
-            msg = Float64MultiArray()
-            msg.data = state
-            self._pub.publish(msg)
-            self.get_logger().debug(f"[UR5Pub] state: {[f'{v:.2f}' for v in state]}")
+            state_msg = Float64MultiArray()
+            state_msg.data = [*q_deg, grip_norm]
+            self._pub.publish(state_msg)
+
+            vel_msg = Float64MultiArray()
+            vel_msg.data = [*qd_deg, 0.0]  # index 6: gripper has no velocity sensor
+            self._vel_pub.publish(vel_msg)
+
+            self.get_logger().debug(f"[UR5Pub] state: {[f'{v:.2f}' for v in state_msg.data]}")
 
         except Exception as e:
             self.get_logger().warning(f"[UR5Pub] State publish error: {e}", throttle_duration_sec=2.0)

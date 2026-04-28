@@ -1,6 +1,6 @@
 # Teleoperation
 
-ROS 2 Humble teleoperation system for collecting robot demonstration datasets compatible with **pi0.5 / openpi / LeRobot** training.
+ROS 2 Humble teleoperation system for collecting robot demonstration datasets compatible with **Pi0.5 / LeRobot, ACT, and Diffusion Policy** training.
 
 **Platform:** Ubuntu 22.04 + ROS 2 Humble
 **Hardware:** Uarm master arm → UR5 follower arm + Weiss Robotics CRG 30-050 gripper
@@ -171,16 +171,31 @@ Episodes are saved as `episode_0.hdf5`, `episode_1.hdf5`, … in the configured 
 episode_N.hdf5
 ├── observations/
 │   ├── images/
-│   │   ├── exterior_image_1_left   (T, 224, 224, 3)  uint8   lzf
-│   │   ├── wrist_image_left        (T, 224, 224, 3)  uint8   lzf
-│   │   └── front_image_1           (T, 224, 224, 3)  uint8   lzf  [3-camera only]
-│   └── qpos                        (T, 7)             float64 gzip
-└── action                          (T, 7)             float64 gzip
+│   │   ├── exterior_image_1_left   (T, H, W, 3)  uint8   lzf   RGB
+│   │   ├── wrist_image_left        (T, H, W, 3)  uint8   lzf   RGB
+│   │   └── front_image_1           (T, H, W, 3)  uint8   lzf   RGB  [3-camera only]
+│   ├── qpos                        (T, 7)         float64 gzip
+│   └── qvel                        (T, 7)         float64 gzip
+└── action                          (T, 7)         float64 gzip
 
-attrs: sim, prompt, task, hz, n_steps, timestamp, num_cameras
+attrs: sim=False, prompt, task, hz, n_steps, timestamp, num_cameras
 ```
 
-`qpos` / `action` layout: `[joint_0 … joint_5 (deg), gripper (0=closed, 1=open)]`
+`qpos` / `qvel` / `action` layout: `[joint_0 … joint_5, gripper]`
+
+- Joints: degrees for `qpos`/`action`; deg/s for `qvel`
+- Gripper: `0 = closed, 1 = open`; index 6 of `qvel` is always `0.0` (no sensor)
+- Default recording resolution: **480 × 480** (square center-crop from camera stream)
+
+### Framework compatibility
+
+The HDF5 files produced by `episode_recorder.py` are directly compatible with all three training frameworks via the conversion tools in `data_processing/`:
+
+| Framework | Input to training | Conversion needed |
+|-----------|-------------------|-------------------|
+| **Pi0.5 / LeRobot** | LeRobot dataset | `examples/ur5/convert_ur5_data_to_lerobot.py` |
+| **ACT** | HDF5 directly | None — use `act-main/imitate_episodes_ur5.py` |
+| **Diffusion Policy** | Zarr store | `data_processing/convert_hdf5_to_zarr.py` |
 
 ---
 
@@ -205,7 +220,7 @@ teleoperation/
     └── scripts/
         ├── UR5/
         │   ├── servo2ur5.py           # UR5 teleoperation controller (60 Hz servoJ)
-        │   ├── ur5_pub.py             # UR5 state publisher → /robot_state
+        │   ├── ur5_pub.py             # UR5 state publisher → /robot_state + /robot_vel
         │   └── run_ur5_nodes.sh       # Launch all nodes
         ├── Uarm_teleop/
         │   ├── Feetech_servo/         # Feetech servo master arm reader
@@ -220,18 +235,23 @@ teleoperation/
 ```
 Uarm_teleop/feetech_servo_reader.py
         │
-        │  /servo_angles  (Float64MultiArray, 7 floats — degrees)
+        │  /servo_angles  (Float64MultiArray, 7 — degrees)
         ▼
-UR5/servo2ur5.py  ──────────────────────→  /robot_action  (Float64MultiArray, 7)
-                                                            joints [deg ×6] + gripper [0-1]
-UR5/ur5_pub.py    ──────────────────────→  /robot_state   (Float64MultiArray, 7)
+UR5/servo2ur5.py  ──→  /robot_action  (Float64MultiArray, 7)
+                                        joints [deg ×6] + gripper [0-1]
 
-data_collection/cam_pub.py              →  /cam_1  (exterior, sensor_msgs/Image)
-                                        →  /cam_2  (wrist,    sensor_msgs/Image)
-                                        →  /cam_3  (front,    sensor_msgs/Image)  [if connected]
+UR5/ur5_pub.py    ──→  /robot_state   (Float64MultiArray, 7)
+                                        actual joints [deg ×6] + gripper [0-1]
+               └──→  /robot_vel    (Float64MultiArray, 7)
+                                        actual joint velocities [deg/s ×6] + 0.0
 
-data_collection/episode_recorder.py   subscribes to all topics above
-                                       (auto-detects /cam_3; records 2 or 3 images per step)
+data_collection/cam_pub.py  →  /cam_1  (exterior, sensor_msgs/Image)
+                             →  /cam_2  (wrist,    sensor_msgs/Image)
+                             →  /cam_3  (front,    sensor_msgs/Image)  [if connected]
+
+data_collection/episode_recorder.py
+    subscribes: /cam_1, /cam_2, [/cam_3], /robot_state, /robot_vel, /robot_action
+    writes HDF5: qpos, qvel, action, images (2 or 3 cameras)
 ```
 
 ---
